@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>QR Dine | Admin Portal - Complete Management</title>
+  <title>QR Dine | Admin Portal - Firebase Auth</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
@@ -15,8 +15,6 @@
     .badge-available { background: #dcfce7; color: #166534; }
     .badge-unavailable { background: #fee2e2; color: #991b1b; }
     .order-row:hover { background: #fef3c7; }
-    .btn-primary { background: linear-gradient(135deg, #f97316, #ea580c); }
-    .btn-primary:hover { background: linear-gradient(135deg, #ea580c, #c2410c); }
     .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .image-preview { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #f97316; }
@@ -26,6 +24,7 @@
     .modal-enter { animation: fadeIn 0.2s ease-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .compress-progress { transition: width 0.3s ease; }
+    .user-badge { background: linear-gradient(135deg, #f97316, #ea580c); }
   </style>
 </head>
 <body>
@@ -43,7 +42,7 @@
     measurementId: "G-8Y4DWD208G"
   };
 
-  // Import Firebase modules (NO STORAGE - using Base64)
+  // Import Firebase modules
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { 
     getFirestore, 
@@ -56,12 +55,21 @@
     query, 
     orderBy, 
     serverTimestamp,
-    getDocs
+    getDocs,
+    where
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  import {
+    getAuth,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged,
+    createUserWithEmailAndPassword
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
   // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
   
   // ======================== TAX/GST CONFIGURATION ========================
   const TAX_CONFIG = {
@@ -74,7 +82,8 @@
   // ======================== GLOBAL STATE ========================
   let menuItems = [];
   let orders = [];
-  let isLoggedIn = localStorage.getItem('admin_logged') === 'true';
+  let currentUser = null;
+  let isLoggedIn = false;
   let currentView = 'dashboard';
   let currentTab = 'pending';
   let editingItem = null;
@@ -85,14 +94,16 @@
   let isCompressing = false;
   let compressProgress = 0;
   let showTaxModal = false;
+  let showRegisterModal = false;
+  let registerEmail = '';
+  let registerPassword = '';
+  let registerName = '';
   
   const categories = ['Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts', 'Soups', 'Salads', 'Seafood', 'Tandoor', 'Rolls', 'Combo Meals'];
-  const ADMIN_EMAIL = "admin@resto.com";
-  const ADMIN_PASSWORD = "admin123";
   
   // Image compression settings
-  const MAX_IMAGE_SIZE_KB = 400; // 400KB max for Firestore
-  const MAX_IMAGE_DIMENSION = 800; // Max width/height in pixels
+  const MAX_IMAGE_SIZE_KB = 400;
+  const MAX_IMAGE_DIMENSION = 800;
   
   // ======================== HELPER FUNCTIONS ========================
   function showNotification(message, type = 'success') {
@@ -120,7 +131,7 @@
     });
   }
   
-  // ======================== IMAGE COMPRESSION (No Firebase Storage!) ========================
+  // ======================== IMAGE COMPRESSION ========================
   function compressImage(file) {
     return new Promise((resolve, reject) => {
       if (!file) {
@@ -128,7 +139,6 @@
         return;
       }
       
-      // Check if it's an image
       if (!file.type.startsWith('image/')) {
         resolve("https://placehold.co/400x200/e2e8f0/475569?text=Not+an+Image");
         return;
@@ -147,7 +157,6 @@
           compressProgress = 30;
           render();
           
-          // Calculate new dimensions
           let width = img.width;
           let height = img.height;
           
@@ -164,7 +173,6 @@
           compressProgress = 60;
           render();
           
-          // Create canvas and compress
           const canvas = document.createElement('canvas');
           canvas.width = width;
           canvas.height = height;
@@ -174,7 +182,6 @@
           let quality = 0.8;
           let result = canvas.toDataURL('image/jpeg', quality);
           
-          // Reduce quality until size is under limit
           while (result.length > MAX_IMAGE_SIZE_KB * 1024 && quality > 0.1) {
             quality -= 0.1;
             result = canvas.toDataURL('image/jpeg', quality);
@@ -202,9 +209,9 @@
   }
   
   // ======================== MENU CRUD OPERATIONS ========================
-  
-  // READ - Real-time menu listener
   function listenToMenu() {
+    if (!isLoggedIn) return;
+    
     isLoading = true;
     render();
     
@@ -232,7 +239,6 @@
       });
       isLoading = false;
       if (currentView === 'menu') render();
-      console.log("✅ Menu loaded from Firestore:", menuItems.length, "items");
     }, (error) => {
       console.error("Error loading menu:", error);
       isLoading = false;
@@ -240,7 +246,6 @@
     });
   }
   
-  // CREATE - Add new menu item with compressed Base64 image
   async function addMenuItem(itemData, file) {
     try {
       let imageData = "https://placehold.co/400x200/e2e8f0/475569?text=No+Image";
@@ -259,14 +264,13 @@
         rating: 4.5,
         veg: true,
         popular: false,
+        createdBy: currentUser?.uid,
+        createdByEmail: currentUser?.email,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
       
       const docRef = await addDoc(collection(db, "menu"), menuItem);
-      console.log("✅ Item added to Firestore with ID:", docRef.id);
-      console.log("📸 Image size:", (imageData.length / 1024).toFixed(2), "KB");
-      
       showNotification(`✅ "${itemData.name}" added successfully!`, 'success');
       return true;
     } catch (error) {
@@ -276,7 +280,6 @@
     }
   }
   
-  // UPDATE - Edit existing menu item
   async function updateMenuItem(id, updates, newFile = null) {
     try {
       let imageData = updates.image;
@@ -291,11 +294,12 @@
         category: updates.category,
         description: updates.description || '',
         image: imageData,
+        updatedBy: currentUser?.uid,
+        updatedByEmail: currentUser?.email,
         updatedAt: serverTimestamp()
       };
       
       await updateDoc(doc(db, "menu", id), updateData);
-      console.log("✅ Item updated in Firestore:", id);
       showNotification(`✅ "${updates.name}" updated successfully!`, 'success');
       return true;
     } catch (error) {
@@ -305,13 +309,11 @@
     }
   }
   
-  // DELETE - Remove menu item
   async function deleteMenuItem(id, name) {
     if (!confirm(`⚠️ Delete "${name}" permanently?\n\nThis action cannot be undone!`)) return;
     
     try {
       await deleteDoc(doc(db, "menu", id));
-      console.log("✅ Item deleted from Firestore:", id);
       showNotification(`✅ "${name}" deleted successfully!`, 'success');
     } catch (error) {
       console.error("Error deleting item:", error);
@@ -319,7 +321,6 @@
     }
   }
   
-  // TOGGLE AVAILABILITY
   async function toggleAvailability(id, currentStatus) {
     try {
       await updateDoc(doc(db, "menu", id), { 
@@ -335,6 +336,8 @@
   
   // ======================== ORDER FUNCTIONS ========================
   function listenToOrders() {
+    if (!isLoggedIn) return;
+    
     const ordersRef = collection(db, "orders");
     const ordersQuery = query(ordersRef, orderBy("timestamp", "desc"));
     
@@ -356,7 +359,6 @@
         });
       });
       if (currentView === 'dashboard' || currentView === 'orders') render();
-      console.log("✅ Orders loaded from Firestore:", orders.length, "orders");
     }, (error) => {
       console.error("Error loading orders:", error);
     });
@@ -366,6 +368,8 @@
     try {
       await updateDoc(doc(db, "orders", orderId), {
         status: newStatus,
+        updatedBy: currentUser?.uid,
+        updatedByEmail: currentUser?.email,
         updatedAt: serverTimestamp()
       });
       showNotification(`Order status updated to ${newStatus}`, 'success');
@@ -373,6 +377,104 @@
       console.error("Error updating order:", error);
       showNotification("Error updating order", 'error');
     }
+  }
+  
+  // ======================== AUTHENTICATION FUNCTIONS ========================
+  async function loginUser(email, password) {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      currentUser = userCredential.user;
+      isLoggedIn = true;
+      localStorage.setItem('admin_logged', 'true');
+      localStorage.setItem('admin_email', email);
+      showNotification(`Welcome back, ${email}!`, 'success');
+      initializeDefaultMenu();
+      listenToMenu();
+      listenToOrders();
+      currentView = 'dashboard';
+      render();
+      return true;
+    } catch (error) {
+      console.error("Login error:", error);
+      let errorMessage = "Login failed";
+      if (error.code === 'auth/user-not-found') errorMessage = "User not found. Please register first.";
+      else if (error.code === 'auth/wrong-password') errorMessage = "Wrong password.";
+      else if (error.code === 'auth/invalid-email') errorMessage = "Invalid email format.";
+      else errorMessage = error.message;
+      showNotification(errorMessage, 'error');
+      return false;
+    }
+  }
+  
+  async function registerUser(email, password, name) {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      currentUser = userCredential.user;
+      
+      // Save user details to Firestore
+      await addDoc(collection(db, "users"), {
+        uid: currentUser.uid,
+        email: email,
+        name: name,
+        role: "admin",
+        createdAt: serverTimestamp()
+      });
+      
+      isLoggedIn = true;
+      localStorage.setItem('admin_logged', 'true');
+      localStorage.setItem('admin_email', email);
+      showNotification(`Welcome ${name}! Account created successfully.`, 'success');
+      initializeDefaultMenu();
+      listenToMenu();
+      listenToOrders();
+      currentView = 'dashboard';
+      render();
+      return true;
+    } catch (error) {
+      console.error("Registration error:", error);
+      let errorMessage = "Registration failed";
+      if (error.code === 'auth/email-already-in-use') errorMessage = "Email already in use.";
+      else if (error.code === 'auth/weak-password') errorMessage = "Password should be at least 6 characters.";
+      else errorMessage = error.message;
+      showNotification(errorMessage, 'error');
+      return false;
+    }
+  }
+  
+  async function logoutUser() {
+    try {
+      await signOut(auth);
+      currentUser = null;
+      isLoggedIn = false;
+      localStorage.removeItem('admin_logged');
+      localStorage.removeItem('admin_email');
+      showNotification('Logged out successfully', 'info');
+      render();
+    } catch (error) {
+      console.error("Logout error:", error);
+      showNotification("Error logging out", 'error');
+    }
+  }
+  
+  // Check auth state on load
+  function checkAuthState() {
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUser = user;
+        isLoggedIn = true;
+        localStorage.setItem('admin_logged', 'true');
+        localStorage.setItem('admin_email', user.email);
+        initializeDefaultMenu();
+        listenToMenu();
+        listenToOrders();
+        currentView = 'dashboard';
+        render();
+      } else {
+        currentUser = null;
+        isLoggedIn = false;
+        render();
+      }
+    });
   }
   
   // ======================== INITIALIZE DEFAULT MENU ========================
@@ -408,7 +510,6 @@
           });
         }
         console.log("✅ Default menu added to Firestore!");
-        showNotification("Default menu initialized with 12 items!", "success");
       }
     } catch (error) {
       console.error("Error initializing menu:", error);
@@ -471,23 +572,59 @@
   // ======================== RENDER FUNCTIONS ========================
   function renderLogin() {
     return `
-      <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100">
+      <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100 p-4">
         <div class="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
           <div class="text-center mb-6">
             <div class="inline-block bg-orange-100 rounded-full p-4 mb-4">
               <i class="fas fa-utensils text-5xl text-orange-600"></i>
             </div>
             <h2 class="text-2xl font-bold text-gray-800">Admin Portal</h2>
-            <p class="text-gray-500 text-sm mt-1">Restaurant Management System</p>
+            <p class="text-gray-500 text-sm mt-1">Firebase Authentication</p>
           </div>
-          <div class="space-y-4">
-            <input type="email" id="email" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin@resto.com" value="admin@resto.com">
-            <input type="password" id="password" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin123" value="admin123">
-            <button id="loginBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
-              <i class="fas fa-sign-in-alt mr-2"></i> Login
-            </button>
+          
+          <div id="loginForm">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="loginEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin@resto.com">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input type="password" id="loginPassword" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="••••••••">
+              </div>
+              <button id="loginBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
+                <i class="fas fa-sign-in-alt mr-2"></i> Login
+              </button>
+              <p class="text-center text-sm text-gray-500">
+                Don't have an account? 
+                <button id="showRegisterBtn" class="text-orange-600 hover:underline">Register here</button>
+              </p>
+            </div>
           </div>
-          <p class="text-xs text-center text-gray-400 mt-6">Demo: admin@resto.com / admin123</p>
+          
+          <div id="registerForm" class="hidden">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input type="text" id="registerName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="John Doe">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="registerEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin@resto.com">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input type="password" id="registerPassword" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="Min 6 characters">
+              </div>
+              <button id="registerBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
+                <i class="fas fa-user-plus mr-2"></i> Register
+              </button>
+              <p class="text-center text-sm text-gray-500">
+                Already have an account? 
+                <button id="showLoginBtn" class="text-orange-600 hover:underline">Login here</button>
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -502,11 +639,15 @@
         <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
           <div>
             <h1 class="text-2xl font-bold text-gray-800">Dashboard</h1>
-            <p class="text-gray-500 text-sm mt-1">Firebase Connected • Images stored in Firestore</p>
+            <p class="text-gray-500 text-sm mt-1">Welcome, ${currentUser?.email || 'Admin'} • Firebase Auth</p>
           </div>
           <div class="flex gap-3">
+            <div class="bg-orange-100 rounded-lg px-3 py-2 flex items-center gap-2">
+              <i class="fas fa-user-circle text-orange-600"></i>
+              <span class="text-sm text-orange-700">${currentUser?.email?.split('@')[0] || 'Admin'}</span>
+            </div>
             <button id="taxSettingsBtn" class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition">
-              <i class="fas fa-percent mr-2"></i> Tax Settings
+              <i class="fas fa-percent mr-2"></i> Tax
             </button>
             <button id="logoutBtn" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition">
               <i class="fas fa-sign-out-alt mr-2"></i> Logout
@@ -524,7 +665,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div class="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToMenuBtn">
             <h3 class="text-xl font-bold mb-2">🍽️ Menu Management</h3>
-            <p class="text-orange-100 text-sm mb-4">Add/Edit/Delete menu items with image compression</p>
+            <p class="text-orange-100 text-sm mb-4">Add/Edit/Delete menu items</p>
             <div class="inline-block bg-white text-orange-600 px-4 py-2 rounded-lg font-semibold"><i class="fas fa-edit mr-2"></i> Manage Menu</div>
           </div>
           <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToOrdersBtn">
@@ -558,7 +699,7 @@
   
   function renderMenuManagement() {
     if (isLoading) {
-      return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading menu from Firestore...</p></div></div>`;
+      return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading menu...</p></div></div>`;
     }
     
     const stats = getStats();
@@ -566,7 +707,7 @@
     return `
       <div class="p-6">
         <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
-          <div><button id="backToDashboard" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Menu Management</h1><p class="text-gray-500 text-sm mt-1">${stats.availableItems} available • ${stats.unavailableItems} unavailable • Images in Firestore</p></div>
+          <div><button id="backToDashboard" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Menu Management</h1><p class="text-gray-500 text-sm mt-1">${stats.availableItems} available • ${stats.unavailableItems} unavailable</p></div>
           <button id="addItemBtn" class="bg-orange-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-orange-700"><i class="fas fa-plus mr-2"></i> Add New Item</button>
         </div>
         
@@ -605,7 +746,7 @@
     
     return `
       <div class="p-6">
-        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6"><button id="backToDashboardOrders" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Order Management</h1><p class="text-gray-500 text-sm mt-1">Real-time orders from Firestore</p></div>
+        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6"><button id="backToDashboardOrders" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Order Management</h1><p class="text-gray-500 text-sm mt-1">Real-time orders</p></div>
         <div class="flex gap-2 mb-6 border-b">
           <button class="order-tab px-5 py-2 font-medium ${currentTab === 'pending' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="pending">Pending (${pending.length})</button>
           <button class="order-tab px-5 py-2 font-medium ${currentTab === 'preparing' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="preparing">Preparing (${preparing.length})</button>
@@ -666,7 +807,7 @@
             <div><label class="block text-sm font-medium mb-1">Price (₹) *</label><input type="number" id="itemPrice" class="w-full border rounded-lg px-3 py-2" placeholder="299" value="${item.price || ''}"></div>
             <div><label class="block text-sm font-medium mb-1">Category</label><select id="itemCategory" class="w-full border rounded-lg px-3 py-2">${categories.map(c => `<option value="${c}" ${item.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
             <div><label class="block text-sm font-medium mb-1">Description</label><textarea id="itemDescription" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Brief description">${escapeHtml(item.description || '')}</textarea></div>
-            <div><label class="block text-sm font-medium mb-1">Upload Image (JPG, PNG, GIF)</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing image: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images are compressed to under 400KB and stored directly in Firestore (No external storage needed!)</p></div>
+            <div><label class="block text-sm font-medium mb-1">Upload Image (JPG, PNG, GIF)</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images compressed to under 400KB</p></div>
           </div>
           <div class="flex gap-3 mt-6"><button id="saveItemBtn" class="flex-1 bg-orange-600 text-white py-2 rounded-lg font-semibold" ${isCompressing ? 'disabled' : ''}><i class="fas fa-save mr-2"></i> ${isEditing ? 'Update Item' : 'Add Item'}</button><button id="cancelModalBtn" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div>
         </div>
@@ -691,25 +832,55 @@
   
   // ======================== EVENT HANDLERS ========================
   function attachLoginEvents() {
-    document.getElementById('loginBtn')?.addEventListener('click', () => {
-      const email = document.getElementById('email')?.value;
-      const pwd = document.getElementById('password')?.value;
-      if (email === ADMIN_EMAIL && pwd === ADMIN_PASSWORD) {
-        isLoggedIn = true;
-        localStorage.setItem('admin_logged', 'true');
-        listenToMenu();
-        listenToOrders();
-        initializeDefaultMenu();
-        currentView = 'dashboard';
-        render();
-      } else {
-        showNotification('Invalid credentials!', 'error');
-      }
-    });
+    const loginBtn = document.getElementById('loginBtn');
+    const showRegisterBtn = document.getElementById('showRegisterBtn');
+    const showLoginBtn = document.getElementById('showLoginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    
+    if (loginBtn) {
+      loginBtn.addEventListener('click', () => {
+        const email = document.getElementById('loginEmail')?.value;
+        const password = document.getElementById('loginPassword')?.value;
+        if (email && password) {
+          loginUser(email, password);
+        } else {
+          showNotification('Please enter email and password', 'error');
+        }
+      });
+    }
+    
+    if (showRegisterBtn) {
+      showRegisterBtn.addEventListener('click', () => {
+        loginForm.classList.add('hidden');
+        registerForm.classList.remove('hidden');
+      });
+    }
+    
+    if (showLoginBtn) {
+      showLoginBtn.addEventListener('click', () => {
+        registerForm.classList.add('hidden');
+        loginForm.classList.remove('hidden');
+      });
+    }
+    
+    if (registerBtn) {
+      registerBtn.addEventListener('click', () => {
+        const name = document.getElementById('registerName')?.value;
+        const email = document.getElementById('registerEmail')?.value;
+        const password = document.getElementById('registerPassword')?.value;
+        if (name && email && password) {
+          registerUser(email, password, name);
+        } else {
+          showNotification('Please fill all fields', 'error');
+        }
+      });
+    }
   }
   
   function attachEvents() {
-    document.getElementById('logoutBtn')?.addEventListener('click', () => { isLoggedIn = false; localStorage.removeItem('admin_logged'); render(); });
+    document.getElementById('logoutBtn')?.addEventListener('click', () => { logoutUser(); });
     document.getElementById('goToMenuBtn')?.addEventListener('click', () => { currentView = 'menu'; render(); });
     document.getElementById('goToOrdersBtn')?.addEventListener('click', () => { currentView = 'orders'; currentTab = 'pending'; render(); });
     document.getElementById('viewAllOrdersBtn')?.addEventListener('click', () => { currentView = 'orders'; currentTab = 'pending'; render(); });
@@ -787,7 +958,7 @@
   
   // ======================== INITIALIZATION ========================
   function init() {
-    render();
+    checkAuthState();
   }
   
   init();
