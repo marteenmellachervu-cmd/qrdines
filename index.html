@@ -56,7 +56,8 @@
     orderBy, 
     serverTimestamp,
     getDocs,
-    where
+    where,
+    limit 
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
   import {
     getAuth,
@@ -264,79 +265,88 @@
   // ======================== DATA ISOLATION - QUERIES WITH userId ========================
   function listenToMenu() {
     if (!isLoggedIn || !currentUser) return;
-    
-    isLoading = true;
-    render();
-    
-    const menuRef = collection(db, "menu");
-    const menuQuery = query(
-      menuRef, 
-      where("restaurantId", "==", currentUser.uid),
-      orderBy("createdAt", "desc")
-    );
-    
-    onSnapshot(menuQuery, (snapshot) => {
-      menuItems = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        menuItems.push({ 
-          id: doc.id,
-          name: data.name || '',
-          price: data.price || 0,
-          category: data.category || '',
-          description: data.description || '',
-          image: data.image || "https://placehold.co/400x200/e2e8f0/475569?text=No+Image",
-          available: data.available !== false,
-          rating: data.rating || 4.5,
-          veg: data.veg || true,
-          popular: data.popular || false,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt
-        });
+  
+  isLoading = true;
+  render();
+  
+  const menuRef = collection(db, "menu");
+  // Remove orderBy to avoid needing index
+  const menuQuery = query(
+    menuRef, 
+    where("restaurantId", "==", currentUser.uid)
+  );
+  
+  onSnapshot(menuQuery, (snapshot) => {
+    menuItems = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      menuItems.push({ 
+        id: doc.id,
+        name: data.name || '',
+        price: data.price || 0,
+        category: data.category || '',
+        description: data.description || '',
+        image: data.image || "https://placehold.co/400x200/e2e8f0/475569?text=No+Image",
+        available: data.available !== false,
+        rating: data.rating || 4.5,
+        veg: data.veg || true,
+        popular: data.popular || false,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
       });
-      isLoading = false;
-      if (currentView === 'menu') render();
-      console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
-    }, (error) => {
-      console.error("Error loading menu:", error);
-      isLoading = false;
-      showNotification("Error loading menu: " + error.message, "error");
     });
+    // Sort in JavaScript instead of Firebase
+    menuItems.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt.seconds - a.createdAt.seconds;
+      }
+      return 0;
+    });
+    isLoading = false;
+    if (currentView === 'menu') render();
+    console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
+  }, (error) => {
+    console.error("Error loading menu:", error);
+    isLoading = false;
+    showNotification("Error loading menu: " + error.message, "error");
+  });
   }
   
   function listenToOrders() {
-    if (!isLoggedIn || !currentUser) return;
-    
-    const ordersRef = collection(db, "orders");
-    const ordersQuery = query(
-      ordersRef, 
-      where("restaurantId", "==", currentUser.uid),
-      orderBy("timestamp", "desc")
-    );
-    
-    onSnapshot(ordersQuery, (snapshot) => {
-      orders = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        orders.push({ 
-          id: doc.id,
-          tableNumber: data.tableNumber,
-          items: data.items || [],
-          subtotal: data.subtotal,
-          cgst: data.cgst,
-          sgst: data.sgst,
-          serviceCharge: data.serviceCharge,
-          totalPrice: data.totalPrice,
-          status: data.status || 'Pending',
-          timestamp: data.timestamp
-        });
+  if (!isLoggedIn || !currentUser) return;
+  
+  const ordersRef = collection(db, "orders");
+  // Remove orderBy to avoid needing index
+  const ordersQuery = query(
+    ordersRef, 
+    where("restaurantId", "==", currentUser.uid)
+  );
+  
+  onSnapshot(ordersQuery, (snapshot) => {
+    orders = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      orders.push({ 
+        id: doc.id,
+        tableNumber: data.tableNumber,
+        items: data.items || [],
+        subtotal: data.subtotal,
+        cgst: data.cgst,
+        sgst: data.sgst,
+        serviceCharge: data.serviceCharge,
+        totalPrice: data.totalPrice,
+        status: data.status || 'Pending',
+        timestamp: data.timestamp
       });
-      if (currentView === 'dashboard' || currentView === 'orders') render();
-      console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
-    }, (error) => {
-      console.error("Error loading orders:", error);
     });
-  }
+    // Sort in JavaScript instead of Firebase
+    orders.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (currentView === 'dashboard' || currentView === 'orders') render();
+    console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
+  }, (error) => {
+    console.error("Error loading orders:", error);
+  });
+}
   
   // ======================== MENU CRUD WITH RESTAURANT ID ========================
   async function addMenuItem(itemData, file) {
@@ -444,42 +454,43 @@
   }
   
   // ======================== DEFAULT MENU FOR NEW RESTAURANT ========================
-  async function initializeDefaultMenuForRestaurant() {
-    if (!currentUser) return;
+  async function initializeDefaultMenuForRestaurant(){
+  if (!currentUser) return;
+  
+  try {
+    const menuRef = collection(db, "menu");
+    // Remove limit and just check if any items exist for this restaurant
+    const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid)));
     
-    try {
-      const menuRef = collection(db, "menu");
-      const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid), where("name", "!=", ""), limit(1)));
+    if (existingItems.empty) {
+      console.log("📝 Initializing default menu for new restaurant...");
       
-      if (existingItems.empty) {
-        console.log("📝 Initializing default menu for new restaurant...");
-        
-        const defaultMenu = [
-          { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
-          { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
-          { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
-          { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
-        ];
-        
-        for (const item of defaultMenu) {
-          await addDoc(collection(db, "menu"), {
-            ...item,
-            restaurantId: currentUser.uid,
-            available: true,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
-        }
-        console.log("✅ Default menu added for new restaurant!");
-        showNotification("Welcome! Default menu items added to your restaurant.", "success");
+      const defaultMenu = [
+        { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
+        { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
+        { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
+        { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+        { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+        { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
+        { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
+      ];
+      
+      for (const item of defaultMenu) {
+        await addDoc(collection(db, "menu"), {
+          ...item,
+          restaurantId: currentUser.uid,
+          available: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
       }
-    } catch (error) {
-      console.error("Error initializing menu:", error);
+      console.log("✅ Default menu added for new restaurant!");
+      showNotification("Welcome! Default menu items added to your restaurant.", "success");
     }
+  } catch (error) {
+    console.error("Error initializing menu:", error);
   }
+}
   
   // ======================== AUTHENTICATION FUNCTIONS ========================
   async function loginUser(email, password) {
