@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>QR Dine | Admin Portal - Firebase Auth</title>
+  <title>QR Dine | Multi-Restaurant Admin Portal</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
@@ -24,7 +24,7 @@
     .modal-enter { animation: fadeIn 0.2s ease-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .compress-progress { transition: width 0.3s ease; }
-    .user-badge { background: linear-gradient(135deg, #f97316, #ea580c); }
+    .restaurant-badge { background: linear-gradient(135deg, #f97316, #ea580c); }
   </style>
 </head>
 <body>
@@ -63,7 +63,8 @@
     signInWithEmailAndPassword,
     signOut,
     onAuthStateChanged,
-    createUserWithEmailAndPassword
+    createUserWithEmailAndPassword,
+    updateProfile
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
   // Initialize Firebase
@@ -83,6 +84,7 @@
   let menuItems = [];
   let orders = [];
   let currentUser = null;
+  let userRestaurantData = null;
   let isLoggedIn = false;
   let currentView = 'dashboard';
   let currentTab = 'pending';
@@ -94,10 +96,10 @@
   let isCompressing = false;
   let compressProgress = 0;
   let showTaxModal = false;
-  let showRegisterModal = false;
-  let registerEmail = '';
-  let registerPassword = '';
-  let registerName = '';
+  let showRestaurantSetup = false;
+  let restaurantName = '';
+  let restaurantAddress = '';
+  let restaurantPhone = '';
   
   const categories = ['Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts', 'Soups', 'Salads', 'Seafood', 'Tandoor', 'Rolls', 'Combo Meals'];
   
@@ -208,15 +210,70 @@
     });
   }
   
-  // ======================== MENU CRUD OPERATIONS ========================
+  // ======================== RESTAURANT DATA FUNCTIONS ========================
+  async function createRestaurantProfile(userId, name, address, phone) {
+    try {
+      const restaurantRef = collection(db, "restaurants");
+      const restaurantData = {
+        userId: userId,
+        name: name,
+        address: address,
+        phone: phone,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(restaurantRef, restaurantData);
+      return { id: docRef.id, ...restaurantData };
+    } catch (error) {
+      console.error("Error creating restaurant profile:", error);
+      throw error;
+    }
+  }
+  
+  async function getRestaurantProfile(userId) {
+    try {
+      const restaurantsRef = collection(db, "restaurants");
+      const q = query(restaurantsRef, where("userId", "==", userId));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const doc = querySnapshot.docs[0];
+        return { id: doc.id, ...doc.data() };
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting restaurant profile:", error);
+      return null;
+    }
+  }
+  
+  async function updateRestaurantProfile(restaurantId, data) {
+    try {
+      const restaurantRef = doc(db, "restaurants", restaurantId);
+      await updateDoc(restaurantRef, {
+        ...data,
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error("Error updating restaurant profile:", error);
+      return false;
+    }
+  }
+  
+  // ======================== DATA ISOLATION - QUERIES WITH userId ========================
   function listenToMenu() {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !currentUser) return;
     
     isLoading = true;
     render();
     
     const menuRef = collection(db, "menu");
-    const menuQuery = query(menuRef, orderBy("createdAt", "desc"));
+    const menuQuery = query(
+      menuRef, 
+      where("restaurantId", "==", currentUser.uid),
+      orderBy("createdAt", "desc")
+    );
     
     onSnapshot(menuQuery, (snapshot) => {
       menuItems = [];
@@ -239,6 +296,7 @@
       });
       isLoading = false;
       if (currentView === 'menu') render();
+      console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
     }, (error) => {
       console.error("Error loading menu:", error);
       isLoading = false;
@@ -246,6 +304,41 @@
     });
   }
   
+  function listenToOrders() {
+    if (!isLoggedIn || !currentUser) return;
+    
+    const ordersRef = collection(db, "orders");
+    const ordersQuery = query(
+      ordersRef, 
+      where("restaurantId", "==", currentUser.uid),
+      orderBy("timestamp", "desc")
+    );
+    
+    onSnapshot(ordersQuery, (snapshot) => {
+      orders = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        orders.push({ 
+          id: doc.id,
+          tableNumber: data.tableNumber,
+          items: data.items || [],
+          subtotal: data.subtotal,
+          cgst: data.cgst,
+          sgst: data.sgst,
+          serviceCharge: data.serviceCharge,
+          totalPrice: data.totalPrice,
+          status: data.status || 'Pending',
+          timestamp: data.timestamp
+        });
+      });
+      if (currentView === 'dashboard' || currentView === 'orders') render();
+      console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
+    }, (error) => {
+      console.error("Error loading orders:", error);
+    });
+  }
+  
+  // ======================== MENU CRUD WITH RESTAURANT ID ========================
   async function addMenuItem(itemData, file) {
     try {
       let imageData = "https://placehold.co/400x200/e2e8f0/475569?text=No+Image";
@@ -255,6 +348,7 @@
       }
       
       const menuItem = {
+        restaurantId: currentUser.uid,  // CRITICAL: Isolate by restaurant
         name: itemData.name,
         price: parseFloat(itemData.price),
         category: itemData.category,
@@ -271,7 +365,7 @@
       };
       
       const docRef = await addDoc(collection(db, "menu"), menuItem);
-      showNotification(`✅ "${itemData.name}" added successfully!`, 'success');
+      showNotification(`✅ "${itemData.name}" added to your restaurant!`, 'success');
       return true;
     } catch (error) {
       console.error("Error adding item:", error);
@@ -334,36 +428,6 @@
     }
   }
   
-  // ======================== ORDER FUNCTIONS ========================
-  function listenToOrders() {
-    if (!isLoggedIn) return;
-    
-    const ordersRef = collection(db, "orders");
-    const ordersQuery = query(ordersRef, orderBy("timestamp", "desc"));
-    
-    onSnapshot(ordersQuery, (snapshot) => {
-      orders = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        orders.push({ 
-          id: doc.id,
-          tableNumber: data.tableNumber,
-          items: data.items || [],
-          subtotal: data.subtotal,
-          cgst: data.cgst,
-          sgst: data.sgst,
-          serviceCharge: data.serviceCharge,
-          totalPrice: data.totalPrice,
-          status: data.status || 'Pending',
-          timestamp: data.timestamp
-        });
-      });
-      if (currentView === 'dashboard' || currentView === 'orders') render();
-    }, (error) => {
-      console.error("Error loading orders:", error);
-    });
-  }
-  
   async function updateOrderStatus(orderId, newStatus) {
     try {
       await updateDoc(doc(db, "orders", orderId), {
@@ -379,18 +443,65 @@
     }
   }
   
+  // ======================== DEFAULT MENU FOR NEW RESTAURANT ========================
+  async function initializeDefaultMenuForRestaurant() {
+    if (!currentUser) return;
+    
+    try {
+      const menuRef = collection(db, "menu");
+      const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid), where("name", "!=", ""), limit(1)));
+      
+      if (existingItems.empty) {
+        console.log("📝 Initializing default menu for new restaurant...");
+        
+        const defaultMenu = [
+          { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
+          { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
+          { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
+          { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+          { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+          { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
+          { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
+        ];
+        
+        for (const item of defaultMenu) {
+          await addDoc(collection(db, "menu"), {
+            ...item,
+            restaurantId: currentUser.uid,
+            available: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+        console.log("✅ Default menu added for new restaurant!");
+        showNotification("Welcome! Default menu items added to your restaurant.", "success");
+      }
+    } catch (error) {
+      console.error("Error initializing menu:", error);
+    }
+  }
+  
   // ======================== AUTHENTICATION FUNCTIONS ========================
   async function loginUser(email, password) {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       currentUser = userCredential.user;
       isLoggedIn = true;
+      
+      // Get restaurant profile
+      userRestaurantData = await getRestaurantProfile(currentUser.uid);
+      
       localStorage.setItem('admin_logged', 'true');
       localStorage.setItem('admin_email', email);
-      showNotification(`Welcome back, ${email}!`, 'success');
-      initializeDefaultMenu();
+      localStorage.setItem('restaurant_id', currentUser.uid);
+      
+      showNotification(`Welcome back, ${userRestaurantData?.name || email}!`, 'success');
+      
+      // Load data for this specific restaurant
+      initializeDefaultMenuForRestaurant();
       listenToMenu();
       listenToOrders();
+      
       currentView = 'dashboard';
       render();
       return true;
@@ -399,34 +510,35 @@
       let errorMessage = "Login failed";
       if (error.code === 'auth/user-not-found') errorMessage = "User not found. Please register first.";
       else if (error.code === 'auth/wrong-password') errorMessage = "Wrong password.";
-      else if (error.code === 'auth/invalid-email') errorMessage = "Invalid email format.";
       else errorMessage = error.message;
       showNotification(errorMessage, 'error');
       return false;
     }
   }
   
-  async function registerUser(email, password, name) {
+  async function registerUser(email, password, name, restaurantNameInput, address, phone) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       currentUser = userCredential.user;
       
-      // Save user details to Firestore
-      await addDoc(collection(db, "users"), {
-        uid: currentUser.uid,
-        email: email,
-        name: name,
-        role: "admin",
-        createdAt: serverTimestamp()
-      });
+      // Update profile
+      await updateProfile(currentUser, { displayName: name });
+      
+      // Create restaurant profile
+      userRestaurantData = await createRestaurantProfile(currentUser.uid, restaurantNameInput, address, phone);
       
       isLoggedIn = true;
       localStorage.setItem('admin_logged', 'true');
       localStorage.setItem('admin_email', email);
-      showNotification(`Welcome ${name}! Account created successfully.`, 'success');
-      initializeDefaultMenu();
+      localStorage.setItem('restaurant_id', currentUser.uid);
+      
+      showNotification(`Welcome ${name}! Your restaurant "${restaurantNameInput}" is ready.`, 'success');
+      
+      // Initialize default menu for this restaurant
+      await initializeDefaultMenuForRestaurant();
       listenToMenu();
       listenToOrders();
+      
       currentView = 'dashboard';
       render();
       return true;
@@ -445,9 +557,13 @@
     try {
       await signOut(auth);
       currentUser = null;
+      userRestaurantData = null;
       isLoggedIn = false;
+      menuItems = [];
+      orders = [];
       localStorage.removeItem('admin_logged');
       localStorage.removeItem('admin_email');
+      localStorage.removeItem('restaurant_id');
       showNotification('Logged out successfully', 'info');
       render();
     } catch (error) {
@@ -456,64 +572,28 @@
     }
   }
   
-  // Check auth state on load
   function checkAuthState() {
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       if (user) {
         currentUser = user;
         isLoggedIn = true;
+        userRestaurantData = await getRestaurantProfile(currentUser.uid);
         localStorage.setItem('admin_logged', 'true');
         localStorage.setItem('admin_email', user.email);
-        initializeDefaultMenu();
+        localStorage.setItem('restaurant_id', user.uid);
+        
+        initializeDefaultMenuForRestaurant();
         listenToMenu();
         listenToOrders();
         currentView = 'dashboard';
         render();
       } else {
         currentUser = null;
+        userRestaurantData = null;
         isLoggedIn = false;
         render();
       }
     });
-  }
-  
-  // ======================== INITIALIZE DEFAULT MENU ========================
-  async function initializeDefaultMenu() {
-    try {
-      const menuRef = collection(db, "menu");
-      const existingItems = await getDocs(menuRef);
-      
-      if (existingItems.empty) {
-        console.log("📝 Initializing default menu...");
-        
-        const defaultMenu = [
-          { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
-          { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
-          { name: "🍗 Chicken 65", price: 280, category: "Starters", description: "Spicy deep-fried chicken", image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🍛 Butter Chicken", price: 380, category: "Main Course", description: "Creamy tomato-based curry", image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🧄 Garlic Naan", price: 55, category: "Breads", description: "Flavorful naan with garlic", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: false },
-          { name: "☕ Masala Chai", price: 25, category: "Beverages", description: "Traditional spiced tea", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: false },
-          { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
-          { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
-          { name: "🍦 Ice Cream", price: 70, category: "Desserts", description: "Creamy vanilla ice cream", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false }
-        ];
-        
-        for (const item of defaultMenu) {
-          await addDoc(collection(db, "menu"), {
-            ...item,
-            available: true,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
-        }
-        console.log("✅ Default menu added to Firestore!");
-      }
-    } catch (error) {
-      console.error("Error initializing menu:", error);
-    }
   }
   
   // ======================== STATISTICS ========================
@@ -578,15 +658,15 @@
             <div class="inline-block bg-orange-100 rounded-full p-4 mb-4">
               <i class="fas fa-utensils text-5xl text-orange-600"></i>
             </div>
-            <h2 class="text-2xl font-bold text-gray-800">Admin Portal</h2>
-            <p class="text-gray-500 text-sm mt-1">Firebase Authentication</p>
+            <h2 class="text-2xl font-bold text-gray-800">Multi-Restaurant Admin</h2>
+            <p class="text-gray-500 text-sm mt-1">Each restaurant has its own private data</p>
           </div>
           
           <div id="loginForm">
             <div class="space-y-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" id="loginEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin@resto.com">
+                <input type="email" id="loginEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="restaurant@email.com">
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
@@ -596,8 +676,8 @@
                 <i class="fas fa-sign-in-alt mr-2"></i> Login
               </button>
               <p class="text-center text-sm text-gray-500">
-                Don't have an account? 
-                <button id="showRegisterBtn" class="text-orange-600 hover:underline">Register here</button>
+                New restaurant? 
+                <button id="showRegisterBtn" class="text-orange-600 hover:underline">Register your restaurant</button>
               </p>
             </div>
           </div>
@@ -605,22 +685,34 @@
           <div id="registerForm" class="hidden">
             <div class="space-y-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                <input type="text" id="registerName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="John Doe">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Restaurant Name *</label>
+                <input type="text" id="restaurantName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="My Restaurant">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" id="registerEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="admin@resto.com">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Owner Name *</label>
+                <input type="text" id="ownerName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="John Doe">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <input type="email" id="registerEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="restaurant@email.com">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
                 <input type="password" id="registerPassword" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="Min 6 characters">
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <textarea id="restaurantAddress" rows="2" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="Restaurant address"></textarea>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input type="tel" id="restaurantPhone" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="+91 98765 43210">
+              </div>
               <button id="registerBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
-                <i class="fas fa-user-plus mr-2"></i> Register
+                <i class="fas fa-user-plus mr-2"></i> Register Restaurant
               </button>
               <p class="text-center text-sm text-gray-500">
-                Already have an account? 
+                Already registered? 
                 <button id="showLoginBtn" class="text-orange-600 hover:underline">Login here</button>
               </p>
             </div>
@@ -638,13 +730,13 @@
       <div class="p-6">
         <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
           <div>
-            <h1 class="text-2xl font-bold text-gray-800">Dashboard</h1>
-            <p class="text-gray-500 text-sm mt-1">Welcome, ${currentUser?.email || 'Admin'} • Firebase Auth</p>
+            <h1 class="text-2xl font-bold text-gray-800">${userRestaurantData?.name || 'Restaurant'} Dashboard</h1>
+            <p class="text-gray-500 text-sm mt-1">Welcome, ${currentUser?.displayName || currentUser?.email} • Private Data</p>
           </div>
           <div class="flex gap-3">
             <div class="bg-orange-100 rounded-lg px-3 py-2 flex items-center gap-2">
-              <i class="fas fa-user-circle text-orange-600"></i>
-              <span class="text-sm text-orange-700">${currentUser?.email?.split('@')[0] || 'Admin'}</span>
+              <i class="fas fa-store text-orange-600"></i>
+              <span class="text-sm text-orange-700">${userRestaurantData?.name || 'Your Restaurant'}</span>
             </div>
             <button id="taxSettingsBtn" class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition">
               <i class="fas fa-percent mr-2"></i> Tax
@@ -659,25 +751,25 @@
           <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Total Orders</p><p class="text-3xl font-bold">${stats.totalOrders}</p></div><i class="fas fa-receipt text-4xl text-orange-300"></i></div></div>
           <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Pending</p><p class="text-3xl font-bold text-yellow-600">${stats.pendingOrders}</p></div><i class="fas fa-clock text-4xl text-yellow-300"></i></div></div>
           <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Revenue</p><p class="text-3xl font-bold text-green-600">${formatCurrency(stats.totalRevenue)}</p></div><i class="fas fa-rupee-sign text-4xl text-green-300"></i></div></div>
-          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Active Menu</p><p class="text-3xl font-bold">${stats.availableItems}/${stats.availableItems+stats.unavailableItems}</p></div><i class="fas fa-utensils text-4xl text-orange-300"></i></div></div>
+          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Menu Items</p><p class="text-3xl font-bold">${stats.availableItems}/${stats.availableItems+stats.unavailableItems}</p></div><i class="fas fa-utensils text-4xl text-orange-300"></i></div></div>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div class="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToMenuBtn">
-            <h3 class="text-xl font-bold mb-2">🍽️ Menu Management</h3>
-            <p class="text-orange-100 text-sm mb-4">Add/Edit/Delete menu items</p>
+            <h3 class="text-xl font-bold mb-2">🍽️ My Menu</h3>
+            <p class="text-orange-100 text-sm mb-4">Manage your restaurant's menu items</p>
             <div class="inline-block bg-white text-orange-600 px-4 py-2 rounded-lg font-semibold"><i class="fas fa-edit mr-2"></i> Manage Menu</div>
           </div>
           <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToOrdersBtn">
-            <h3 class="text-xl font-bold mb-2">📦 Order Tracking</h3>
-            <p class="text-blue-100 text-sm mb-4">Track orders in real-time</p>
+            <h3 class="text-xl font-bold mb-2">📦 My Orders</h3>
+            <p class="text-blue-100 text-sm mb-4">Track orders for your restaurant</p>
             <div class="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold"><i class="fas fa-truck-fast mr-2"></i> View Orders</div>
           </div>
         </div>
         
         <div class="bg-white rounded-xl shadow-sm p-6">
           <h2 class="font-bold mb-4">📋 Recent Orders</h2>
-          ${recentOrders.length === 0 ? '<div class="text-center py-8"><i class="fas fa-shopping-bag text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders yet</p></div>' : `
+          ${recentOrders.length === 0 ? '<div class="text-center py-8"><i class="fas fa-shopping-bag text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders yet for your restaurant</p></div>' : `
             <div class="space-y-3 max-h-96 overflow-y-auto">
               ${recentOrders.map(order => `
                 <div class="order-row border rounded-lg p-4 flex flex-wrap justify-between items-center gap-3">
@@ -699,7 +791,7 @@
   
   function renderMenuManagement() {
     if (isLoading) {
-      return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading menu...</p></div></div>`;
+      return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading your menu...</p></div></div>`;
     }
     
     const stats = getStats();
@@ -707,7 +799,7 @@
     return `
       <div class="p-6">
         <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
-          <div><button id="backToDashboard" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Menu Management</h1><p class="text-gray-500 text-sm mt-1">${stats.availableItems} available • ${stats.unavailableItems} unavailable</p></div>
+          <div><button id="backToDashboard" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">My Menu</h1><p class="text-gray-500 text-sm mt-1">${stats.availableItems} available • ${stats.unavailableItems} unavailable • ${userRestaurantData?.name || 'Your Restaurant'}</p></div>
           <button id="addItemBtn" class="bg-orange-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-orange-700"><i class="fas fa-plus mr-2"></i> Add New Item</button>
         </div>
         
@@ -733,7 +825,7 @@
             </div>
           `).join('')}
         </div>
-        ${menuItems.length === 0 ? '<div class="text-center py-12 bg-white rounded-xl mt-5"><i class="fas fa-utensils text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No menu items. Click "Add New Item" to get started!</p></div>' : ''}
+        ${menuItems.length === 0 ? '<div class="text-center py-12 bg-white rounded-xl mt-5"><i class="fas fa-utensils text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No menu items yet. Click "Add New Item" to get started!</p></div>' : ''}
       </div>
     `;
   }
@@ -746,14 +838,14 @@
     
     return `
       <div class="p-6">
-        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6"><button id="backToDashboardOrders" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">Order Management</h1><p class="text-gray-500 text-sm mt-1">Real-time orders</p></div>
+        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6"><button id="backToDashboardOrders" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">My Orders</h1><p class="text-gray-500 text-sm mt-1">Orders for ${userRestaurantData?.name || 'your restaurant'}</p></div>
         <div class="flex gap-2 mb-6 border-b">
           <button class="order-tab px-5 py-2 font-medium ${currentTab === 'pending' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="pending">Pending (${pending.length})</button>
           <button class="order-tab px-5 py-2 font-medium ${currentTab === 'preparing' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="preparing">Preparing (${preparing.length})</button>
           <button class="order-tab px-5 py-2 font-medium ${currentTab === 'completed' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="completed">Completed (${completed.length})</button>
         </div>
         <div class="space-y-4">
-          ${ordersToShow.length === 0 ? '<div class="bg-white rounded-xl p-12 text-center"><i class="fas fa-inbox text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders in this category</p></div>' : ordersToShow.map(order => `
+          ${ordersToShow.length === 0 ? '<div class="bg-white rounded-xl p-12 text-center"><i class="fas fa-inbox text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders for your restaurant</p></div>' : ordersToShow.map(order => `
             <div class="bg-white rounded-xl shadow-sm p-5 order-row">
               <div class="flex justify-between items-start mb-4">
                 <div><h3 class="font-bold">Order #${order.id.slice(-8)}</h3><p class="text-sm text-gray-500">Table ${order.tableNumber} • ${new Date(order.timestamp).toLocaleString()}</p></div>
@@ -807,7 +899,7 @@
             <div><label class="block text-sm font-medium mb-1">Price (₹) *</label><input type="number" id="itemPrice" class="w-full border rounded-lg px-3 py-2" placeholder="299" value="${item.price || ''}"></div>
             <div><label class="block text-sm font-medium mb-1">Category</label><select id="itemCategory" class="w-full border rounded-lg px-3 py-2">${categories.map(c => `<option value="${c}" ${item.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
             <div><label class="block text-sm font-medium mb-1">Description</label><textarea id="itemDescription" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Brief description">${escapeHtml(item.description || '')}</textarea></div>
-            <div><label class="block text-sm font-medium mb-1">Upload Image (JPG, PNG, GIF)</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images compressed to under 400KB</p></div>
+            <div><label class="block text-sm font-medium mb-1">Upload Image</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images compressed to under 400KB</p></div>
           </div>
           <div class="flex gap-3 mt-6"><button id="saveItemBtn" class="flex-1 bg-orange-600 text-white py-2 rounded-lg font-semibold" ${isCompressing ? 'disabled' : ''}><i class="fas fa-save mr-2"></i> ${isEditing ? 'Update Item' : 'Add Item'}</button><button id="cancelModalBtn" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div>
         </div>
@@ -867,13 +959,17 @@
     
     if (registerBtn) {
       registerBtn.addEventListener('click', () => {
-        const name = document.getElementById('registerName')?.value;
+        const restaurantName = document.getElementById('restaurantName')?.value;
+        const ownerName = document.getElementById('ownerName')?.value;
         const email = document.getElementById('registerEmail')?.value;
         const password = document.getElementById('registerPassword')?.value;
-        if (name && email && password) {
-          registerUser(email, password, name);
+        const address = document.getElementById('restaurantAddress')?.value;
+        const phone = document.getElementById('restaurantPhone')?.value;
+        
+        if (restaurantName && ownerName && email && password) {
+          registerUser(email, password, ownerName, restaurantName, address, phone);
         } else {
-          showNotification('Please fill all fields', 'error');
+          showNotification('Please fill all required fields', 'error');
         }
       });
     }
