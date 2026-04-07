@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>QR Dine | Order Food Online</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    body { background: #f8fafc; }
+    .menu-card { transition: all 0.3s ease; cursor: pointer; }
+    .menu-card:hover { transform: translateY(-4px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
+    .food-image { width: 85px; height: 85px; object-fit: cover; border-radius: 16px; }
+    .veg-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .veg-dot.green { background: #22c55e; }
+    .veg-dot.red { background: #ef4444; }
+    .cart-badge { position: absolute; top: -8px; right: -8px; background: #f97316; color: white; border-radius: 50%; min-width: 22px; height: 22px; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1f2937; color: white; padding: 12px 20px; border-radius: 40px; font-size: 14px; z-index: 1000; animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+  const RESTAURANT = { name: "QR Dine Premium", logo: "🍽️", coverImage: "https://images.pexels.com/photos/260922/pexels-photo-260922.jpeg?w=800&h=300&fit=crop" };
+  const TAX_SETTINGS = { cgst: 2.5, sgst: 2.5, serviceCharge: 5, roundOff: true };
+  
+  let menuItems = [];
+  let cart = [];
+  let tableNumber = new URLSearchParams(window.location.search).get('table') || null;
+  let currentStep = 1;
+  let currentOrder = null;
+  let selectedCategory = 'All';
+  let isLoading = true;
+  let selectedFoodType = 'all';
+  
+  const categories = ['All', 'Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts'];
+  
+  const DEFAULT_MENU = [
+    { id: 1, name: "Paneer Tikka", price: 220, image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", category: "Starters", description: "Grilled cottage cheese", veg: true, prepTime: 15, popular: true },
+    { id: 2, name: "Chicken 65", price: 280, image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", category: "Starters", description: "Spicy deep-fried chicken", veg: false, prepTime: 12, popular: true },
+    { id: 3, name: "Chicken Biryani", price: 320, image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", category: "Main Course", description: "Aromatic basmati rice", veg: false, prepTime: 20, popular: true },
+    { id: 4, name: "Veg Biryani", price: 250, image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", category: "Main Course", description: "Fragrant rice with vegetables", veg: true, prepTime: 18 },
+    { id: 5, name: "Butter Naan", price: 45, image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", category: "Breads", description: "Soft tandoori bread", veg: true, prepTime: 5 },
+    { id: 6, name: "Mango Lassi", price: 90, image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", category: "Beverages", description: "Sweet mango yogurt drink", veg: true, prepTime: 3, popular: true },
+    { id: 7, name: "Gulab Jamun", price: 80, image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", category: "Desserts", description: "Soft milk dumplings", veg: true, prepTime: 5, popular: true }
+  ];
+
+  const TABLE_STORAGE_KEY = 'restaurant_table';
+  
+  function saveTableToStorage(table) { localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify({ number: table, timestamp: Date.now() })); }
+  function getTableFromStorage() { const stored = localStorage.getItem(TABLE_STORAGE_KEY); if (!stored) return null; const data = JSON.parse(stored); if (Date.now() - data.timestamp > 4 * 60 * 60 * 1000) { localStorage.removeItem(TABLE_STORAGE_KEY); return null; } return data.number; }
+  
+  function initializeTable() { const urlTable = new URLSearchParams(window.location.search).get('table'); if (urlTable) { tableNumber = parseInt(urlTable); saveTableToStorage(tableNumber); } else { tableNumber = getTableFromStorage(); } render(); }
+  
+  function saveCart() { localStorage.setItem(`cart_${tableNumber}`, JSON.stringify(cart)); }
+  function loadCart() { cart = JSON.parse(localStorage.getItem(`cart_${tableNumber}`) || '[]'); }
+  
+  function addToCart(item) { if (!tableNumber) { showToast('Please select a table first!', 'warning'); return; } const existing = cart.find(i => i.id === item.id); if (existing) existing.quantity++; else cart.push({ ...item, quantity: 1 }); saveCart(); showToast(`${item.name} added to cart`, 'success'); render(); }
+  function updateQuantity(index, change) { const item = cart[index]; if (item) { const newQty = item.quantity + change; if (newQty <= 0) cart.splice(index, 1); else item.quantity = newQty; saveCart(); render(); } }
+  function getCartTotal() { return cart.reduce((s, i) => s + (i.price * i.quantity), 0); }
+  function getCartCount() { return cart.reduce((s, i) => s + i.quantity, 0); }
+  
+  function calculateBill(subtotal) { let cgst = (subtotal * 2.5) / 100; let sgst = (subtotal * 2.5) / 100; let service = (subtotal * 5) / 100; let total = subtotal + cgst + sgst + service; let roundOff = 0; if (TAX_SETTINGS.roundOff) { const rounded = Math.round(total); roundOff = rounded - total; total = rounded; } return { subtotal, cgst, sgst, service, total, roundOff }; }
+  
+  function placeOrder() { if (!tableNumber) { showToast('Please select a table!', 'error'); return false; } if (cart.length === 0) { showToast('Cart is empty', 'error'); return false; } const subtotal = getCartTotal(); const tax = calculateBill(subtotal); const orderData = { tableNumber: parseInt(tableNumber), items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })), subtotal: tax.subtotal, cgst: tax.cgst, sgst: tax.sgst, serviceCharge: tax.service, totalPrice: tax.total, status: 'Pending', timestamp: new Date().toISOString(), estimatedTime: 20 }; const orders = JSON.parse(localStorage.getItem('restaurant_orders') || '[]'); orders.unshift(orderData); localStorage.setItem('restaurant_orders', JSON.stringify(orders)); currentOrder = { id: 'ORD' + Date.now(), ...orderData }; cart = []; saveCart(); showToast('Order placed successfully!', 'success'); currentStep = 3; render(); return true; }
+  function getCurrentOrder() { return currentOrder; }
+  
+  function showToast(message, type = 'success') { const toast = document.createElement('div'); const colors = { success: '#22c55e', error: '#ef4444', info: '#3b82f6', warning: '#f59e0b' }; toast.className = 'toast'; toast.style.background = colors[type]; toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-info-circle'} mr-2"></i>${message}`; document.body.appendChild(toast); setTimeout(() => toast.remove(), 3000); }
+  function formatCurrency(amount) { return '₹' + amount.toFixed(2); }
+  function getFilteredItems() { let items = selectedCategory === 'All' ? menuItems : menuItems.filter(i => i.category === selectedCategory); if (selectedFoodType === 'veg') items = items.filter(i => i.veg === true); if (selectedFoodType === 'nonveg') items = items.filter(i => i.veg === false); return items; }
+  
+  function loadMenu() { isLoading = true; render(); setTimeout(() => { menuItems = [...DEFAULT_MENU]; isLoading = false; render(); }, 500); }
+  
+  function renderMenuStep() { if (isLoading) return `<div class="max-w-4xl mx-auto px-4 py-5"><div class="loading-spinner mx-auto"></div><p class="text-center mt-4">Loading menu...</p></div>`; const filtered = getFilteredItems(); const cartCount = getCartCount(); const cartTotal = getCartTotal(); const vegCount = menuItems.filter(i => i.veg).length; const nonVegCount = menuItems.filter(i => !i.veg).length; return `<div class="max-w-4xl mx-auto px-4 py-5 pb-28 min-h-screen"><div class="relative rounded-2xl overflow-hidden mb-6 h-40"><img src="${RESTAURANT.coverImage}" class="w-full h-full object-cover"><div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div><div class="absolute bottom-4 left-4 flex items-center gap-3"><div class="bg-white/20 backdrop-blur rounded-full p-2 text-3xl">${RESTAURANT.logo}</div><div><h1 class="text-white text-xl font-bold">${RESTAURANT.name}</h1></div></div>${tableNumber ? `<div class="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-full px-3 py-1 text-white text-sm"><i class="fas fa-table mr-1"></i>Table ${tableNumber}</div>` : ''}</div>${!tableNumber ? `<div class="bg-yellow-50 border border-yellow-200 rounded-2xl p-5 mb-6"><div class="flex items-center gap-3 mb-3"><i class="fas fa-table text-yellow-600 text-xl"></i><h3 class="font-bold">Select Your Table</h3></div><div class="grid grid-cols-5 gap-2">${Array.from({ length: 20 }, (_, i) => i + 1).map(num => `<button class="table-btn bg-white border rounded-xl py-2 hover:border-orange-400" data-table="${num}">${num}</button>`).join('')}</div></div>` : `<div class="bg-green-50 border border-green-200 rounded-2xl p-4 mb-6 flex justify-between"><div><i class="fas fa-check-circle text-green-600"></i> Table ${tableNumber} <span class="text-xs text-green-600">(Locked)</span></div><button id="clearTableBtn" class="text-red-500 text-sm"><i class="fas fa-trash"></i> Clear</button></div>`}<div class="flex gap-3 mb-5"><button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'all' ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}" data-foodtype="all">All Items</button><button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'veg' ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}" data-foodtype="veg"><span class="veg-dot green"></span> Veg (${vegCount})</button><button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'nonveg' ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}" data-foodtype="nonveg"><span class="veg-dot red"></span> Non-Veg (${nonVegCount})</button></div><div class="flex overflow-x-auto gap-2 mb-6 pb-2">${categories.map(cat => `<button class="category-tab px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${selectedCategory === cat ? 'bg-orange-600 text-white' : 'bg-white text-gray-600'}" data-category="${cat}">${cat}</button>`).join('')}</div><div class="grid grid-cols-1 gap-4">${filtered.map(item => `<div class="bg-white rounded-2xl shadow-sm hover:shadow-lg p-4 flex gap-4 menu-card" data-item='${JSON.stringify(item)}'><img src="${item.image}" class="food-image" onerror="this.src='https://placehold.co/85x85/F97316/white?text=Food'"><div class="flex-1"><div class="flex justify-between"><div><div class="flex items-center gap-2"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><h3 class="font-bold">${item.name}</h3></div><p class="text-xs text-gray-500"><i class="far fa-clock"></i> ${item.prepTime} min</p></div><p class="text-orange-600 font-bold">${formatCurrency(item.price)}</p></div><p class="text-gray-500 text-sm mt-1">${item.description}</p><div class="flex justify-between items-center mt-2"><div>${item.popular ? '<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full"><i class="fas fa-fire"></i> Popular</span>' : ''}</div><button class="add-btn bg-orange-600 text-white px-4 py-2 rounded-full text-sm font-semibold"><i class="fas fa-plus"></i> Add</button></div></div></div>`).join('')}</div>${cartCount > 0 ? `<div class="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto px-4 pb-4"><div class="bg-white rounded-2xl shadow-2xl p-4"><div class="flex justify-between items-center"><div><span class="font-bold">${cartCount} item${cartCount > 1 ? 's' : ''}</span><span class="text-orange-600 ml-2 text-lg">${formatCurrency(cartTotal)}</span></div><button id="checkoutBtn" class="bg-orange-600 text-white px-6 py-2 rounded-full font-bold">Review Order →</button></div></div></div>` : ''}</div>`; }
+  
+  function renderCartStep() { const subtotal = getCartTotal(); const tax = calculateBill(subtotal); if (cart.length === 0) { return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><i class="fas fa-shopping-cart text-5xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Cart is empty</h2><button id="backBtn" class="mt-4 bg-orange-600 text-white px-6 py-2 rounded-full">Browse Menu</button></div></div>`; } return `<div class="max-w-2xl mx-auto px-4 py-5"><div class="flex items-center gap-4 mb-6"><button id="backBtn" class="w-10 h-10 rounded-full bg-white shadow flex items-center justify-center"><i class="fas fa-arrow-left"></i></button><h1 class="text-2xl font-bold">Your Cart</h1></div><div class="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">${cart.map((item, idx) => `<div class="flex items-center gap-3 p-4 border-b"><img src="${item.image}" class="w-14 h-14 rounded-xl object-cover"><div class="flex-1"><h3 class="font-bold">${item.name}</h3><p class="text-orange-600">${formatCurrency(item.price)}</p></div><div class="flex items-center gap-2"><button class="qty-dec w-8 h-8 rounded-full bg-gray-100" data-index="${idx}">-</button><span class="w-8 text-center font-semibold">${item.quantity}</span><button class="qty-inc w-8 h-8 rounded-full bg-gray-100" data-index="${idx}">+</button><button class="remove-item w-8 h-8 rounded-full bg-red-50 text-red-500" data-index="${idx}"><i class="fas fa-trash-alt"></i></button></div></div>`).join('')}</div><div class="bg-white rounded-2xl shadow-sm p-5 mb-6"><h3 class="font-bold mb-3">Bill Summary</h3><div class="space-y-2"><div class="flex justify-between"><span>Subtotal</span><span>${formatCurrency(tax.subtotal)}</span></div><div class="flex justify-between text-sm"><span>CGST (2.5%)</span><span>${formatCurrency(tax.cgst)}</span></div><div class="flex justify-between text-sm"><span>SGST (2.5%)</span><span>${formatCurrency(tax.sgst)}</span></div><div class="flex justify-between text-sm"><span>Service Charge (5%)</span><span>${formatCurrency(tax.service)}</span></div><div class="border-t pt-2 mt-2"><div class="flex justify-between font-bold"><span>Total</span><span class="text-orange-600 text-xl">${formatCurrency(tax.total)}</span></div></div></div></div><button id="placeOrderBtn" class="w-full bg-orange-600 text-white py-4 rounded-xl font-bold">Place Order • ${formatCurrency(tax.total)}</button></div>`; }
+  
+  function renderConfirmationStep() { if (!currentOrder) return `<div class="min-h-screen flex items-center justify-center"><div class="loading-spinner"></div><p class="mt-4">Loading order...</p></div>`; return `<div class="min-h-screen bg-gradient-to-b from-orange-50 to-white py-8 px-4"><div class="max-w-2xl mx-auto text-center"><div class="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4"><i class="fas fa-check-circle text-4xl text-green-600"></i></div><h1 class="text-2xl font-bold">Order Confirmed!</h1><p class="text-gray-500">Order #${currentOrder.id.slice(-8)}</p><div class="inline-block mt-2 bg-orange-100 px-4 py-1 rounded-full"><i class="fas fa-table mr-1"></i>Table ${currentOrder.tableNumber}</div><div class="bg-white rounded-2xl shadow-xl p-6 mt-6"><div class="text-center"><p class="text-sm text-gray-500"><i class="far fa-clock"></i> Estimated: ${currentOrder.estimatedTime} mins</p></div></div><div class="bg-white rounded-2xl p-5 mt-4 text-left"><h3 class="font-bold mb-3">Order Summary</h3>${currentOrder.items.map(item => `<div class="flex justify-between text-sm py-1"><span>${item.name} x${item.quantity}</span><span>${formatCurrency(item.price * item.quantity)}</span></div>`).join('')}<div class="border-t pt-2 mt-2"><div class="flex justify-between font-bold"><span>Total</span><span class="text-orange-600">${formatCurrency(currentOrder.totalPrice)}</span></div></div></div><button id="newOrderBtn" class="mt-6 bg-orange-600 text-white px-8 py-3 rounded-xl font-bold">New Order</button></div></div>`; }
+  
+  function attachEvents() {
+    document.querySelectorAll('.table-btn').forEach(btn => { btn.addEventListener('click', () => { tableNumber = parseInt(btn.dataset.table); saveTableToStorage(tableNumber); render(); }); });
+    document.getElementById('clearTableBtn')?.addEventListener('click', () => { localStorage.removeItem(TABLE_STORAGE_KEY); tableNumber = null; cart = []; render(); });
+    document.querySelectorAll('[data-foodtype]').forEach(btn => { btn.addEventListener('click', () => { selectedFoodType = btn.dataset.foodtype; render(); }); });
+    document.querySelectorAll('.category-tab').forEach(btn => { btn.addEventListener('click', () => { selectedCategory = btn.dataset.category; render(); }); });
+    document.querySelectorAll('.add-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.stopPropagation(); const card = btn.closest('.menu-card'); if (card && card.dataset.item) addToCart(JSON.parse(card.dataset.item)); }); });
+    document.getElementById('checkoutBtn')?.addEventListener('click', () => { currentStep = 2; render(); });
+    document.getElementById('backBtn')?.addEventListener('click', () => { currentStep = 1; render(); });
+    document.getElementById('placeOrderBtn')?.addEventListener('click', () => { if (placeOrder()) { currentStep = 3; render(); } });
+    document.getElementById('newOrderBtn')?.addEventListener('click', () => { currentOrder = null; currentStep = 1; render(); });
+    document.querySelectorAll('.qty-inc').forEach(btn => { btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), 1)); });
+    document.querySelectorAll('.qty-dec').forEach(btn => { btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), -1)); });
+    document.querySelectorAll('.remove-item').forEach(btn => { btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), -999)); });
+  }
+  
+  function render() { const root = document.getElementById('app'); if (!root) return; let html = ''; if (currentStep === 1) html = renderMenuStep(); else if (currentStep === 2) html = renderCartStep(); else if (currentStep === 3) html = renderConfirmationStep(); root.innerHTML = html; attachEvents(); }
+  
+  function init() { initializeTable(); loadCart(); loadMenu(); render(); }
+  init();
+</script>
+</body>
+</html>
