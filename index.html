@@ -1,48 +1,81 @@
-Here is the complete customer portal code that is fully connected to your admin portal via Firebase. It will reflect all menu changes (add, edit, delete, block/unblock) and orders in real-time.
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-  <title>QR Dine | Smart QR Ordering</title>
+  <title>QR Dine | Digital Menu & Ordering</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Inter', sans-serif; }
     body { background: #f8fafc; }
-    .menu-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; }
-    .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.15); }
-    .food-image { width: 90px; height: 90px; object-fit: cover; border-radius: 16px; background: linear-gradient(135deg, #f1f5f9, #e2e8f0); }
-    .veg-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .menu-item { transition: all 0.2s ease; cursor: pointer; }
+    .menu-item:active { transform: scale(0.98); }
+    .food-image { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; background: #f1f5f9; }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-slide-up { animation: slideUp 0.3s ease-out; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #e2e8f0; }
+    ::-webkit-scrollbar-thumb { background: #f97316; border-radius: 10px; }
+    .status-tracker-line { position: absolute; top: 24px; left: 0; right: 0; height: 3px; background: #e2e8f0; z-index: 0; }
+    .status-dot-active { background: #f97316; box-shadow: 0 0 0 4px rgba(249,115,22,0.2); }
+    .loading-spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #f97316;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    
+    .veg-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
     .veg-dot.green { background: #22c55e; box-shadow: 0 0 0 2px #dcfce7; }
     .veg-dot.red { background: #ef4444; box-shadow: 0 0 0 2px #fee2e2; }
-    .status-tracker { position: relative; display: flex; justify-content: space-between; margin: 20px 0; }
-    .status-step { flex: 1; text-align: center; position: relative; z-index: 1; }
-    .status-dot { width: 44px; height: 44px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; transition: all 0.3s; font-size: 18px; color: #94a3b8; }
-    .status-dot.active { background: linear-gradient(135deg, #f97316, #ea580c); color: white; box-shadow: 0 0 0 4px rgba(249,115,22,0.2); transform: scale(1.1); }
-    .status-dot.completed { background: #22c55e; color: white; }
-    .status-line { position: absolute; top: 22px; left: 0; right: 0; height: 2px; background: #e2e8f0; z-index: 0; }
-    .status-line-fill { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, #f97316, #22c55e); transition: width 0.5s ease; border-radius: 2px; }
-    .fab-waiter { position: fixed; bottom: 100px; right: 20px; background: linear-gradient(135deg, #3b82f6, #2563eb); width: 56px; height: 56px; border-radius: 28px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 12px rgba(59,130,246,0.4); cursor: pointer; transition: all 0.3s; z-index: 30; }
-    .fab-waiter:hover { transform: scale(1.1); }
-    .fab-waiter.requested { background: linear-gradient(135deg, #22c55e, #16a34a); animation: ring 0.5s ease-in-out; }
-    @keyframes ring { 0% { transform: rotate(0); } 25% { transform: rotate(15deg); } 75% { transform: rotate(-15deg); } 100% { transform: rotate(0); } }
-    .cart-badge { position: absolute; top: -8px; right: -8px; background: linear-gradient(135deg, #f97316, #ea580c); color: white; border-radius: 50%; min-width: 22px; height: 22px; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1f2937; color: white; padding: 12px 20px; border-radius: 40px; font-size: 14px; z-index: 1000; animation: slideUp 0.3s ease-out; white-space: nowrap; }
-    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .section-tab { transition: all 0.2s; cursor: pointer; }
-    .section-tab.active { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }
-    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    
+    .section-tab {
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .section-tab.active {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: white;
+    }
+    
+    .cart-badge {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: white;
+      border-radius: 50%;
+      min-width: 22px;
+      height: 22px;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
   </style>
 </head>
 <body>
-<div id="customer-app"></div>
+<div id="app-root"></div>
 
 <script type="module">
-  // ======================== FIREBASE CONFIGURATION (SAME AS ADMIN) ========================
+  // ======================== FIREBASE CONFIGURATION ========================
   const firebaseConfig = {
     apiKey: "AIzaSyDnTl39uYi-NHhBEMeObezN2Uyqkk8sk6Q",
     authDomain: "qrdines-829b7.firebaseapp.com",
@@ -64,28 +97,25 @@ Here is the complete customer portal code that is fully connected to your admin 
     doc, 
     getDoc, 
     serverTimestamp,
-    updateDoc,
     orderBy
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   
-  // ======================== RESTAURANT BRANDING ========================
-  const RESTAURANT = {
-    name: "QR Dine Premium",
-    logo: "🍽️",
-    coverImage: "https://images.pexels.com/photos/260922/pexels-photo-260922.jpeg?w=800&h=300&fit=crop"
-  };
-  
   // ======================== TAX CONFIGURATION ========================
-  const TAX_SETTINGS = { cgst: 2.5, sgst: 2.5, serviceCharge: 5, roundOff: true };
+  const TAX_SETTINGS = {
+    cgst: { rate: 2.5, name: "CGST" },
+    sgst: { rate: 2.5, name: "SGST" },
+    totalGst: 5,
+    serviceCharge: { rate: 5, name: "Service Charge", enabled: true },
+    roundOff: true
+  };
   
   // ======================== GLOBAL STATE ========================
   let menuItems = [];
   let cart = [];
-  let tableNumber = null;
-  let isTableLocked = false;
+  let tableNumber = new URLSearchParams(window.location.search).get('table') || '1';
   let currentStep = 1;
   let currentOrderId = null;
   let currentOrder = null;
@@ -97,151 +127,117 @@ Here is the complete customer portal code that is fully connected to your admin 
   
   const categories = ['All', 'Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts'];
   
-  // ======================== TABLE MANAGEMENT ========================
-  const TABLE_STORAGE_KEY = 'restaurant_table';
-  const TABLE_SESSION_DURATION = 4 * 60 * 60 * 1000;
+  // ======================== DEFAULT MENU (FALLBACK) ========================
+  const DEFAULT_MENU = [
+    { id: 1, name: "🧀 Paneer Tikka", price: 220, image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", category: "Starters", description: "Grilled cottage cheese", rating: 4.5, veg: true, popular: true },
+    { id: 2, name: "🌯 Veg Spring Roll", price: 180, image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", category: "Starters", description: "Crispy rolls", rating: 4.3, veg: true, popular: false },
+    { id: 3, name: "🍗 Chicken 65", price: 280, image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", category: "Starters", description: "Spicy deep-fried chicken", rating: 4.8, veg: false, popular: true },
+    { id: 4, name: "🍛 Chicken Biryani", price: 320, image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", category: "Main Course", description: "Aromatic basmati rice", rating: 4.9, veg: false, popular: true },
+    { id: 5, name: "🥘 Veg Biryani", price: 250, image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", category: "Main Course", description: "Fragrant rice with vegetables", rating: 4.6, veg: true, popular: false },
+    { id: 6, name: "🍛 Butter Chicken", price: 380, image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", category: "Main Course", description: "Creamy tomato-based curry", rating: 4.9, veg: false, popular: true },
+    { id: 7, name: "🥖 Butter Naan", price: 45, image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", category: "Breads", description: "Soft tandoori bread", rating: 4.4, veg: true, popular: false },
+    { id: 8, name: "🧄 Garlic Naan", price: 55, image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", category: "Breads", description: "Flavorful naan with garlic", rating: 4.5, veg: true, popular: false },
+    { id: 9, name: "🥭 Mango Lassi", price: 90, image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", category: "Beverages", description: "Refreshing mango drink", rating: 4.9, veg: true, popular: true },
+    { id: 10, name: "🍨 Gulab Jamun", price: 80, image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", category: "Desserts", description: "Soft milk dumplings", rating: 4.8, veg: true, popular: true }
+  ];
   
-  function saveTableToStorage(table) {
-    localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify({ number: table, timestamp: Date.now() }));
-  }
-  
-  function getTableFromStorage() {
-    const stored = localStorage.getItem(TABLE_STORAGE_KEY);
-    if (!stored) return null;
-    const data = JSON.parse(stored);
-    if (Date.now() - data.timestamp > TABLE_SESSION_DURATION) {
-      localStorage.removeItem(TABLE_STORAGE_KEY);
-      return null;
+  // ======================== TAX CALCULATION ========================
+  function calculateBillWithTax(subtotal) {
+    const cgstAmount = (subtotal * TAX_SETTINGS.cgst.rate) / 100;
+    const sgstAmount = (subtotal * TAX_SETTINGS.sgst.rate) / 100;
+    let serviceChargeAmount = 0;
+    if (TAX_SETTINGS.serviceCharge.enabled) {
+      serviceChargeAmount = (subtotal * TAX_SETTINGS.serviceCharge.rate) / 100;
     }
-    return data.number;
-  }
-  
-  function detectTableFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    const detected = params.get('t') || params.get('table');
-    if (detected) {
-      const num = parseInt(detected);
-      if (!isNaN(num) && num > 0 && num <= 50) {
-        saveTableToStorage(num);
-        tableNumber = num;
-        isTableLocked = true;
-        const url = new URL(window.location.href);
-        url.searchParams.delete('t');
-        url.searchParams.delete('table');
-        window.history.replaceState({}, '', url);
-        return true;
-      }
+    let totalTax = cgstAmount + sgstAmount + serviceChargeAmount;
+    let grandTotal = subtotal + totalTax;
+    let roundOffAmount = 0;
+    if (TAX_SETTINGS.roundOff) {
+      const roundedTotal = Math.round(grandTotal);
+      roundOffAmount = roundedTotal - grandTotal;
+      grandTotal = roundedTotal;
     }
-    return false;
-  }
-  
-  function initializeTable() {
-    if (!detectTableFromURL()) {
-      const stored = getTableFromStorage();
-      if (stored) {
-        tableNumber = stored;
-        isTableLocked = true;
-      }
-    }
-    render();
+    return { subtotal, cgst: cgstAmount, sgst: sgstAmount, serviceCharge: serviceChargeAmount, totalTax, roundOff: roundOffAmount, grandTotal };
   }
   
   // ======================== CART MANAGEMENT ========================
-  function saveCart() { localStorage.setItem(`cart_${tableNumber}`, JSON.stringify(cart)); }
-  function loadCart() { cart = JSON.parse(localStorage.getItem(`cart_${tableNumber}`) || '[]'); }
+  function saveCart() { localStorage.setItem(`cart_table_${tableNumber}`, JSON.stringify(cart)); }
+  function loadCart() { const saved = localStorage.getItem(`cart_table_${tableNumber}`); cart = saved ? JSON.parse(saved) : []; }
   
   function addToCart(item) {
-    if (!tableNumber) { showToast('Please select a table first!', 'warning'); return false; }
     const existing = cart.find(i => i.id === item.id);
-    if (existing) existing.quantity++;
-    else cart.push({ ...item, quantity: 1 });
+    if (existing) { existing.quantity = (existing.quantity || 1) + 1; } 
+    else { cart.push({ ...item, quantity: 1 }); }
     saveCart();
     showToast(`${item.name} added to cart`, 'success');
     render();
-    return true;
   }
   
+  function removeFromCart(index) { const removed = cart[index]; cart.splice(index, 1); saveCart(); showToast(`${removed.name} removed`, 'info'); render(); }
   function updateQuantity(index, change) {
     const item = cart[index];
     if (item) {
-      const newQty = item.quantity + change;
-      if (newQty <= 0) cart.splice(index, 1);
-      else item.quantity = newQty;
-      saveCart();
-      render();
+      const newQty = (item.quantity || 1) + change;
+      if (newQty <= 0) { removeFromCart(index); } 
+      else { item.quantity = newQty; saveCart(); render(); }
     }
   }
+  function getCartTotal() { return cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0); }
+  function getCartCount() { return cart.reduce((sum, item) => sum + (item.quantity || 1), 0); }
   
-  function getCartTotal() { return cart.reduce((s, i) => s + (i.price * i.quantity), 0); }
-  function getCartCount() { return cart.reduce((s, i) => s + i.quantity, 0); }
-  
-  // ======================== TAX CALCULATION ========================
-  function calculateBill(subtotal) {
-    let cgst = (subtotal * 2.5) / 100;
-    let sgst = (subtotal * 2.5) / 100;
-    let service = (subtotal * 5) / 100;
-    let total = subtotal + cgst + sgst + service;
-    let roundOff = 0;
-    if (TAX_SETTINGS.roundOff) {
-      const rounded = Math.round(total);
-      roundOff = rounded - total;
-      total = rounded;
-    }
-    return { subtotal, cgst, sgst, service, total, roundOff };
-  }
-  
-  // ======================== FIREBASE: REAL-TIME MENU (SYNC WITH ADMIN) ========================
+  // ======================== FIREBASE: REAL-TIME MENU FROM ADMIN ========================
   function loadMenuFromFirebase() {
     isLoading = true;
     render();
     
     const menuRef = collection(db, "menu");
-    // Only show available items to customers
     const menuQuery = query(menuRef, where("available", "==", true));
     
     unsubscribeMenu = onSnapshot(menuQuery, (snapshot) => {
-      menuItems = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        menuItems.push({ id: doc.id, ...data });
-      });
-      // Sort by creation date (newest first)
-      menuItems.sort((a, b) => {
-        if (a.createdAt && b.createdAt) {
-          return b.createdAt.seconds - a.createdAt.seconds;
-        }
-        return 0;
-      });
-      isLoading = false;
-      if (currentStep === 1) render();
-      console.log(`✅ Menu loaded from Firebase: ${menuItems.length} items`);
+      if (!snapshot.empty) {
+        menuItems = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          menuItems.push({ id: doc.id, ...data });
+        });
+        isLoading = false;
+        if (currentStep === 1) render();
+        console.log("✅ Menu loaded from Firebase:", menuItems.length, "items");
+      } else {
+        menuItems = [...DEFAULT_MENU];
+        isLoading = false;
+        if (currentStep === 1) render();
+        console.log("📋 Using default menu (Firebase empty)");
+      }
     }, (error) => {
       console.error("Error loading menu:", error);
+      menuItems = [...DEFAULT_MENU];
       isLoading = false;
-      showToast("Error loading menu. Please refresh.", "error");
+      if (currentStep === 1) render();
+      showToast("Using offline menu", "info");
     });
   }
   
   // ======================== FIREBASE: PLACE ORDER ========================
   async function placeOrder() {
-    if (!tableNumber) { showToast('Please select a table!', 'error'); return false; }
-    if (cart.length === 0) { showToast('Cart is empty', 'error'); return false; }
+    if (cart.length === 0) { showToast('Your cart is empty', 'error'); return false; }
     
     const subtotal = getCartTotal();
-    const tax = calculateBill(subtotal);
+    const taxCalc = calculateBillWithTax(subtotal);
     
     const orderData = {
       tableNumber: parseInt(tableNumber),
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
-      subtotal: tax.subtotal,
-      cgst: tax.cgst,
-      sgst: tax.sgst,
-      serviceCharge: tax.service,
-      totalPrice: tax.total,
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity || 1 })),
+      subtotal: subtotal,
+      cgst: taxCalc.cgst,
+      sgst: taxCalc.sgst,
+      serviceCharge: taxCalc.serviceCharge,
+      totalTax: taxCalc.totalTax,
+      roundOff: taxCalc.roundOff,
+      totalPrice: taxCalc.grandTotal,
       status: 'Pending',
       timestamp: new Date().toISOString(),
-      estimatedTime: 20,
-      restaurantId: "customer_side" // Will be set by admin rules
+      estimatedTime: 20
     };
     
     try {
@@ -249,7 +245,6 @@ Here is the complete customer portal code that is fully connected to your admin 
       currentOrderId = docRef.id;
       currentOrder = { id: docRef.id, ...orderData };
       
-      // Listen to real-time status updates
       listenToOrderStatus(currentOrderId);
       
       cart = [];
@@ -265,64 +260,54 @@ Here is the complete customer portal code that is fully connected to your admin 
     }
   }
   
-  // ======================== FIREBASE: REAL-TIME ORDER STATUS (SYNC WITH ADMIN) ========================
+  // ======================== FIREBASE: REAL-TIME ORDER STATUS FROM ADMIN ========================
   function listenToOrderStatus(orderId) {
     if (unsubscribeOrder) unsubscribeOrder();
     
     const orderRef = doc(db, "orders", orderId);
     unsubscribeOrder = onSnapshot(orderRef, (docSnap) => {
       if (docSnap.exists()) {
-        const updatedOrder = { id: docSnap.id, ...docSnap.data() };
-        currentOrder = updatedOrder;
-        
+        const updated = { id: docSnap.id, ...docSnap.data() };
+        currentOrder = updated;
         if (currentStep === 3) render();
         
-        // Show toast notifications for status changes
         const messages = {
           'Accepted': '✅ Order accepted by restaurant!',
           'Preparing': '👨‍🍳 Your food is being prepared!',
           'Ready': '🔔 Your order is ready!',
           'Served': '🍽️ Enjoy your meal!'
         };
-        if (messages[updatedOrder.status]) showToast(messages[updatedOrder.status], 'info');
+        if (messages[updated.status]) showToast(messages[updated.status], 'info');
       }
     });
-  }
-  
-  // ======================== SERVICE REQUESTS ========================
-  function requestService(type) {
-    if (!tableNumber) { showToast('Please select a table first!', 'warning'); return; }
-    const messages = { waiter: '🧑‍🍳 Waiter is on the way!', water: '💧 Water requested!', bill: '💰 Bill requested!' };
-    showToast(messages[type], 'success');
-    const btn = document.getElementById(`fab${type.charAt(0).toUpperCase() + type.slice(1)}`);
-    if (btn) btn.classList.add('requested');
-    setTimeout(() => btn?.classList.remove('requested'), 2000);
   }
   
   // ======================== UI HELPERS ========================
   function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     const colors = { success: '#22c55e', error: '#ef4444', info: '#3b82f6', warning: '#f59e0b' };
-    toast.className = 'toast';
+    toast.className = `fixed bottom-20 left-1/2 transform -translate-x-1/2 z-50 px-5 py-3 rounded-full shadow-lg text-white font-medium text-sm flex items-center gap-2`;
     toast.style.background = colors[type];
-    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-info-circle'} mr-2"></i>${message}`;
+    toast.style.animation = "slideUp 0.3s ease-out";
+    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-info-circle'} mr-1"></i>${message}`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
   }
   
-  function formatCurrency(amount) { return '₹' + amount.toFixed(2); }
-  function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
   function getFilteredItems() {
-    let items = selectedCategory === 'All' ? menuItems : menuItems.filter(i => i.category === selectedCategory);
-    if (selectedFoodType === 'veg') items = items.filter(i => i.veg === true);
-    if (selectedFoodType === 'nonveg') items = items.filter(i => i.veg === false);
+    let items = selectedCategory === 'All' ? menuItems : menuItems.filter(item => item.category === selectedCategory);
+    if (selectedFoodType === 'veg') items = items.filter(item => item.veg === true);
+    if (selectedFoodType === 'nonveg') items = items.filter(item => item.veg === false);
     return items;
   }
+  
+  function formatCurrency(amount) { return '₹' + amount.toFixed(2); }
+  function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
   
   // ======================== RENDER FUNCTIONS ========================
   function renderMenuStep() {
     if (isLoading) {
-      return `<div class="max-w-4xl mx-auto px-4 py-5"><div class="loading-spinner mx-auto"></div><p class="text-center mt-4">Loading menu...</p></div>`;
+      return `<div class="max-w-4xl mx-auto px-4 py-5"><div class="loading-spinner mx-auto"></div><p class="text-center mt-4">Loading delicious menu...</p></div>`;
     }
     
     const filtered = getFilteredItems();
@@ -333,231 +318,144 @@ Here is the complete customer portal code that is fully connected to your admin 
     
     return `
       <div class="max-w-4xl mx-auto px-4 py-5 pb-28 min-h-screen">
-        <div class="relative rounded-2xl overflow-hidden mb-6 h-40">
-          <img src="${RESTAURANT.coverImage}" class="w-full h-full object-cover">
-          <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-          <div class="absolute bottom-4 left-4 flex items-center gap-3">
-            <div class="bg-white/20 backdrop-blur rounded-full p-2 text-3xl">${RESTAURANT.logo}</div>
-            <div><h1 class="text-white text-xl font-bold">${RESTAURANT.name}</h1><p class="text-white/80 text-xs">Scan & Order</p></div>
+        <div class="bg-white rounded-2xl shadow-sm p-5 mb-6 sticky top-2 z-10 backdrop-blur-sm bg-white/95 border border-gray-100">
+          <div class="flex justify-between items-center">
+            <div>
+              <h1 class="text-2xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">🍽️ QR Dine</h1>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-xs bg-gray-100 px-3 py-1 rounded-full text-gray-600"><i class="fas fa-table mr-1"></i> Table ${tableNumber}</span>
+                <span class="text-xs text-gray-400"><i class="fas fa-qrcode"></i> Scan to order</span>
+              </div>
+            </div>
+            <button id="viewCartBtn" class="relative bg-orange-50 hover:bg-orange-100 transition px-4 py-2 rounded-full shadow-sm">
+              <i class="fas fa-shopping-cart text-orange-600 text-lg"></i>
+              ${cartCount > 0 ? `<span class="cart-badge">${cartCount}</span>` : ''}
+            </button>
           </div>
-          ${tableNumber ? `<div class="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-full px-3 py-1 text-white text-sm"><i class="fas fa-table mr-1"></i>Table ${tableNumber}</div>` : ''}
         </div>
         
-        ${!tableNumber ? `
-          <div class="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-5 mb-6">
-            <div class="flex items-center gap-3 mb-3"><i class="fas fa-table text-yellow-600 text-xl"></i><h3 class="font-bold">Select Your Table</h3></div>
-            <div class="grid grid-cols-5 gap-2">${Array.from({ length: 20 }, (_, i) => i + 1).map(num => `<button class="table-btn bg-white border border-gray-300 rounded-xl py-2 text-center hover:border-orange-400 transition" data-table="${num}">${num}</button>`).join('')}</div>
-          </div>
-        ` : `
-          <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4 mb-6 flex justify-between items-center">
-            <div><i class="fas fa-check-circle text-green-600"></i> <span class="font-medium">Table ${tableNumber}</span> <span class="text-xs text-green-600">(Locked)</span></div>
-            <button id="clearTableBtn" class="text-red-500 text-sm hover:bg-red-50 px-3 py-1 rounded-full transition"><i class="fas fa-trash"></i> Clear</button>
-          </div>
-        `}
-        
         <div class="flex gap-3 mb-5">
-          <button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'all' ? 'active bg-orange-600 text-white' : 'bg-white text-gray-600 shadow-sm'}" data-foodtype="all">All Items</button>
+          <button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'all' ? 'active bg-orange-600 text-white' : 'bg-white text-gray-600 shadow-sm'}" data-foodtype="all">All Items (${menuItems.length})</button>
           <button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'veg' ? 'active bg-orange-600 text-white' : 'bg-white text-gray-600 shadow-sm'}" data-foodtype="veg"><span class="veg-dot green"></span> Veg (${vegCount})</button>
           <button class="section-tab flex-1 py-2 rounded-xl font-semibold ${selectedFoodType === 'nonveg' ? 'active bg-orange-600 text-white' : 'bg-white text-gray-600 shadow-sm'}" data-foodtype="nonveg"><span class="veg-dot red"></span> Non-Veg (${nonVegCount})</button>
         </div>
         
         <div class="flex overflow-x-auto gap-2 mb-6 pb-2 scrollbar-hide">
-          ${categories.map(cat => `<button class="category-tab px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === cat ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-gray-600 shadow-sm'}" data-category="${cat}">${cat === 'All' ? '<i class="fas fa-grid mr-1"></i>' : ''} ${cat}</button>`).join('')}
+          ${categories.map(cat => `<button class="category-tab px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${selectedCategory === cat ? 'bg-orange-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'}" data-category="${cat}">${cat === 'All' ? '<i class="fas fa-grid mr-1"></i>' : ''} ${cat}</button>`).join('')}
         </div>
         
-        <div class="grid grid-cols-1 gap-4">
-          ${filtered.map(item => `
-            <div class="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all p-4 flex gap-4 menu-card" data-item='${JSON.stringify(item)}'>
-              <img src="${item.image}" class="food-image" loading="lazy" onerror="this.src='https://placehold.co/90x90/F97316/white?text=Food'">
-              <div class="flex-1">
-                <div class="flex justify-between">
-                  <div>
-                    <div class="flex items-center gap-2"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><h3 class="font-bold text-gray-800">${escapeHtml(item.name)}</h3></div>
-                    <div class="flex items-center gap-2 mt-1">
-                      <span class="text-xs text-gray-500"><i class="far fa-clock"></i> ${item.prepTime || 15} min</span>
-                    </div>
+        ${filtered.length === 0 ? `<div class="text-center py-12 bg-white rounded-xl"><i class="fas fa-utensils text-4xl text-gray-300 mb-3"></i><p class="text-gray-500">No items in this category</p></div>` : `
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            ${filtered.map(item => `
+              <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all p-3 flex gap-3 menu-item cursor-pointer" data-item='${JSON.stringify(item)}'>
+                <img src="${item.image}" class="food-image" alt="${item.name}" loading="lazy" onerror="this.src='https://placehold.co/150x150/F97316/white?text=Food'">
+                <div class="flex-1">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><h3 class="font-semibold text-gray-800 text-base">${escapeHtml(item.name)}</h3></div>
+                    ${cart.find(i => i.id === item.id) ? `<span class="bg-orange-100 text-orange-600 text-xs px-2 py-0.5 rounded-full font-bold">${cart.find(i => i.id === item.id).quantity}</span>` : ''}
                   </div>
-                  <p class="text-orange-600 font-bold text-xl">${formatCurrency(item.price)}</p>
-                </div>
-                <p class="text-gray-500 text-sm mt-2">${escapeHtml(item.description || 'Delicious item')}</p>
-                <div class="flex justify-between items-center mt-3">
-                  <div class="flex gap-1">
-                    ${item.popular ? '<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full"><i class="fas fa-fire"></i> Popular</span>' : ''}
-                    ${item.recommended ? '<span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full"><i class="fas fa-medal"></i> Chef Rec</span>' : ''}
-                  </div>
-                  <button class="add-btn bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-full text-sm font-semibold transition"><i class="fas fa-plus"></i> Add</button>
+                  <p class="text-gray-500 text-xs mt-1">${escapeHtml(item.description || 'Delicious item')}</p>
+                  <div class="flex items-center gap-1 mt-1"><i class="fas fa-star text-yellow-400 text-xs"></i><span class="text-xs text-gray-500">${item.rating || 4.5}</span>${item.popular ? '<span class="ml-2 text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full"><i class="fas fa-fire"></i> Popular</span>' : ''}</div>
+                  <div class="flex justify-between items-center mt-2"><span class="text-orange-600 font-bold text-lg">${formatCurrency(item.price)}</span><button class="add-to-cart-btn bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-full text-sm font-medium transition shadow-sm flex items-center gap-1"><i class="fas fa-plus text-xs"></i> Add</button></div>
                 </div>
               </div>
-            </div>
-          `).join('')}
-        </div>
+            `).join('')}
+          </div>
+        `}
         
         ${cartCount > 0 ? `
           <div class="fixed bottom-0 left-0 right-0 z-20 max-w-4xl mx-auto px-4 pb-4">
-            <div class="bg-white rounded-2xl shadow-2xl p-4 border border-gray-100 animate-slide-up">
+            <div class="bg-white rounded-2xl shadow-xl p-4 border border-gray-100 animate-slide-up">
               <div class="flex justify-between items-center">
-                <div class="flex items-center gap-3">
-                  <div class="bg-orange-100 rounded-full w-12 h-12 flex items-center justify-center"><i class="fas fa-shopping-bag text-orange-600 text-xl"></i></div>
-                  <div><span class="font-bold text-gray-800">${cartCount} item${cartCount > 1 ? 's' : ''}</span><span class="text-orange-600 font-bold ml-2 text-lg">${formatCurrency(cartTotal)}</span></div>
-                </div>
-                <button id="checkoutBtn" class="bg-orange-600 text-white px-6 py-2.5 rounded-full font-bold hover:bg-orange-700 transition">Review Order →</button>
+                <div class="flex items-center gap-3"><div class="bg-orange-100 rounded-full w-10 h-10 flex items-center justify-center"><i class="fas fa-shopping-bag text-orange-600"></i></div><div><span class="font-semibold text-gray-800">${cartCount} item${cartCount > 1 ? 's' : ''}</span><span class="text-orange-600 font-bold ml-2">${formatCurrency(cartTotal)}</span></div></div>
+                <button id="checkoutFloatingBtn" class="bg-orange-600 text-white px-6 py-2.5 rounded-full font-semibold hover:bg-orange-700 transition shadow-md flex items-center gap-2">Review Order <i class="fas fa-arrow-right text-sm"></i></button>
               </div>
             </div>
           </div>
         ` : ''}
-        
-        <div class="fab-waiter" id="fabWaiter"><i class="fas fa-bell"></i></div>
-        <div class="fab-waiter" id="fabWater" style="bottom: 170px; background: linear-gradient(135deg, #3b82f6, #2563eb);"><i class="fas fa-tint"></i></div>
-        <div class="fab-waiter" id="fabBill" style="bottom: 240px; background: linear-gradient(135deg, #10b981, #059669);"><i class="fas fa-receipt"></i></div>
       </div>
     `;
   }
   
   function renderCartStep() {
     const subtotal = getCartTotal();
-    const tax = calculateBill(subtotal);
+    const taxCalc = calculateBillWithTax(subtotal);
     
     if (cart.length === 0) {
-      return `<div class="min-h-screen flex items-center justify-center px-4"><div class="text-center"><i class="fas fa-shopping-cart text-5xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Cart is empty</h2><button id="backBtn" class="mt-4 bg-orange-600 text-white px-6 py-2 rounded-full">Browse Menu</button></div></div>`;
+      return `<div class="min-h-screen flex items-center justify-center px-4"><div class="bg-white rounded-2xl p-8 text-center max-w-md shadow-sm"><div class="bg-gray-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-shopping-cart text-4xl text-gray-400"></i></div><h2 class="text-xl font-semibold text-gray-800">Your cart is empty</h2><p class="text-gray-500 mt-2">Add delicious items from the menu</p><button id="backToMenuEmptyBtn" class="mt-6 bg-orange-600 text-white px-6 py-2.5 rounded-full font-semibold hover:bg-orange-700 transition inline-flex items-center gap-2"><i class="fas fa-arrow-left"></i> Browse Menu</button></div></div>`;
     }
     
     return `
       <div class="max-w-2xl mx-auto px-4 py-5 pb-28 min-h-screen">
-        <div class="flex items-center gap-4 mb-6"><button id="backBtn" class="w-10 h-10 rounded-full bg-white shadow flex items-center justify-center"><i class="fas fa-arrow-left"></i></button><h1 class="text-2xl font-bold">Your Cart</h1>${tableNumber ? `<span class="text-sm bg-orange-100 px-3 py-1 rounded-full ml-auto">Table ${tableNumber}</span>` : ''}</div>
-        
-        <div class="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
-          ${cart.map((item, idx) => `
-            <div class="flex items-center gap-3 p-4 border-b last:border-0">
-              <img src="${item.image}" class="w-14 h-14 rounded-xl object-cover">
-              <div class="flex-1"><h3 class="font-bold">${item.name}</h3><p class="text-orange-600">${formatCurrency(item.price)}</p></div>
-              <div class="flex items-center gap-2">
-                <button class="qty-dec w-8 h-8 rounded-full bg-gray-100" data-index="${idx}">-</button>
-                <span class="w-8 text-center font-semibold">${item.quantity}</span>
-                <button class="qty-inc w-8 h-8 rounded-full bg-gray-100" data-index="${idx}">+</button>
-                <button class="remove-item w-8 h-8 rounded-full bg-red-50 text-red-500" data-index="${idx}"><i class="fas fa-trash-alt"></i></button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        
-        <div class="bg-white rounded-2xl shadow-sm p-5 mb-6">
-          <h3 class="font-bold mb-3">Bill Summary</h3>
-          <div class="space-y-2">
-            <div class="flex justify-between"><span>Subtotal</span><span>${formatCurrency(tax.subtotal)}</span></div>
-            <div class="flex justify-between text-sm"><span>CGST (2.5%)</span><span>${formatCurrency(tax.cgst)}</span></div>
-            <div class="flex justify-between text-sm"><span>SGST (2.5%)</span><span>${formatCurrency(tax.sgst)}</span></div>
-            <div class="flex justify-between text-sm"><span>Service Charge (5%)</span><span>${formatCurrency(tax.service)}</span></div>
-            ${tax.roundOff !== 0 ? `<div class="flex justify-between text-sm"><span>Round Off</span><span>${tax.roundOff > 0 ? '+' : ''}${formatCurrency(tax.roundOff)}</span></div>` : ''}
-            <div class="border-t-2 border-dashed pt-3 mt-2"><div class="flex justify-between font-bold"><span>Total</span><span class="text-2xl font-bold text-orange-600">${formatCurrency(tax.total)}</span></div></div>
-          </div>
-        </div>
-        
-        <button id="placeOrderBtn" class="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transition">Place Order • ${formatCurrency(tax.total)}</button>
+        <div class="flex items-center gap-4 mb-6"><button id="backToMenuFromCart" class="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-600 hover:text-orange-600 transition"><i class="fas fa-arrow-left text-lg"></i></button><h1 class="text-2xl font-bold text-gray-800">Your Cart</h1><span class="text-sm text-gray-500 ml-auto">Table ${tableNumber}</span></div>
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden mb-6">${cart.map((item, idx) => `<div class="flex items-center gap-3 p-4 border-b last:border-0 hover:bg-gray-50 transition"><img src="${item.image}" class="w-14 h-14 rounded-lg object-cover" onerror="this.src='https://placehold.co/100x100/F97316/white?text=Food'"><div class="flex-1"><div class="flex items-center gap-2"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><h3 class="font-semibold text-gray-800">${escapeHtml(item.name)}</h3></div><p class="text-orange-600 font-medium text-sm">${formatCurrency(item.price)}</p></div><div class="flex items-center gap-2"><button class="qty-dec w-8 h-8 rounded-full bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600 transition flex items-center justify-center" data-index="${idx}"><i class="fas fa-minus text-sm"></i></button><span class="font-semibold w-8 text-center text-gray-800">${item.quantity || 1}</span><button class="qty-inc w-8 h-8 rounded-full bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600 transition flex items-center justify-center" data-index="${idx}"><i class="fas fa-plus text-sm"></i></button><button class="remove-item ml-1 w-8 h-8 rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition flex items-center justify-center" data-index="${idx}"><i class="fas fa-trash-alt text-sm"></i></button></div></div>`).join('')}</div>
+        <div class="bg-white rounded-xl shadow-sm p-5 mb-6"><h3 class="font-bold text-gray-800 mb-3">Bill Summary</h3><div class="space-y-2"><div class="flex justify-between items-center pb-2 border-b"><span class="text-gray-600">Subtotal</span><span class="font-medium">${formatCurrency(subtotal)}</span></div><div class="flex justify-between items-center text-sm"><span class="text-gray-500">CGST (${TAX_SETTINGS.cgst.rate}%)</span><span class="font-medium">${formatCurrency(taxCalc.cgst)}</span></div><div class="flex justify-between items-center text-sm"><span class="text-gray-500">SGST (${TAX_SETTINGS.sgst.rate}%)</span><span class="font-medium">${formatCurrency(taxCalc.sgst)}</span></div><div class="flex justify-between items-center text-sm"><span class="text-gray-500">Service Charge (${TAX_SETTINGS.serviceCharge.rate}%)</span><span class="font-medium">${formatCurrency(taxCalc.serviceCharge)}</span></div>${taxCalc.roundOff !== 0 ? `<div class="flex justify-between items-center text-sm"><span class="text-gray-500">Round Off</span><span class="font-medium">${taxCalc.roundOff > 0 ? '+' : ''}${formatCurrency(taxCalc.roundOff)}</span></div>` : ''}<div class="border-t-2 border-dashed pt-3 mt-2"><div class="flex justify-between items-center"><span class="text-lg font-bold text-gray-800">Total Amount</span><span class="text-2xl font-bold text-orange-600">${formatCurrency(taxCalc.grandTotal)}</span></div></div></div></div>
+        <button id="placeOrderBtn" class="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transition-all flex items-center justify-center gap-2"><i class="fas fa-check-circle"></i> Place Order • ${formatCurrency(taxCalc.grandTotal)}</button>
         <p class="text-center text-xs text-gray-400 mt-4"><i class="fas fa-clock mr-1"></i> Estimated: 15-20 mins</p>
       </div>
     `;
   }
   
   function renderConfirmationStep() {
-    if (!currentOrder) return `<div class="min-h-screen flex items-center justify-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading order...</p></div>`;
+    if (!currentOrder) return `<div class="min-h-screen flex items-center justify-center"><div class="loading-spinner mx-auto"></div><p class="mt-2">Loading order...</p></div>`;
     
     const statusSteps = ['Pending', 'Accepted', 'Preparing', 'Ready', 'Served'];
-    const currentStepIdx = statusSteps.indexOf(currentOrder.status);
+    const currentIdx = statusSteps.indexOf(currentOrder.status);
     
     return `
       <div class="min-h-screen bg-gradient-to-b from-orange-50 to-white py-8 px-4">
         <div class="max-w-2xl mx-auto text-center">
-          <div class="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 animate-pulse-fast"><i class="fas fa-check-circle text-4xl text-green-600"></i></div>
+          <div class="bg-green-100 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4"><i class="fas fa-check-circle text-4xl text-green-600"></i></div>
           <h1 class="text-2xl font-bold">Order Confirmed!</h1>
-          <p class="text-gray-500 mt-1">Order #${currentOrder.id.slice(-8)}</p>
-          <div class="flex justify-center gap-2 mt-2"><div class="inline-block bg-orange-100 px-4 py-1 rounded-full"><i class="fas fa-table mr-1 text-orange-600"></i><span>Table ${currentOrder.tableNumber}</span></div></div>
+          <p class="text-gray-500">Order #${currentOrder.id.slice(-8)}</p>
+          <div class="inline-block mt-2 bg-orange-100 px-4 py-1 rounded-full"><i class="fas fa-table mr-1"></i>Table ${currentOrder.tableNumber}</div>
           
           <div class="bg-white rounded-2xl shadow-xl p-6 mt-6">
-            <div class="status-tracker">
-              <div class="status-line"><div class="status-line-fill" style="width: ${(currentStepIdx / (statusSteps.length - 1)) * 100}%"></div></div>
-              ${statusSteps.map((step, idx) => `
-                <div class="status-step">
-                  <div class="status-dot ${idx < currentStepIdx ? 'completed' : idx === currentStepIdx ? 'active' : ''}"><i class="fas ${idx === 0 ? 'fa-receipt' : idx === 1 ? 'fa-check' : idx === 2 ? 'fa-fire' : idx === 3 ? 'fa-bell' : 'fa-smile'}"></i></div>
-                  <p class="text-xs font-medium ${idx === currentStepIdx ? 'text-orange-600' : 'text-gray-400'}">${step}</p>
-                </div>
-              `).join('')}
-            </div>
+            <div class="relative"><div class="status-tracker-line"></div><div class="relative flex justify-between z-10">${statusSteps.map((step, idx) => `<div class="text-center flex-1"><div class="w-12 h-12 mx-auto rounded-full flex items-center justify-center transition-all duration-300 ${idx < currentIdx ? 'bg-green-500 text-white' : idx === currentIdx ? 'bg-orange-600 text-white status-dot-active' : 'bg-gray-200 text-gray-400'}"><i class="fas ${idx === 0 ? 'fa-receipt' : idx === 1 ? 'fa-check' : idx === 2 ? 'fa-fire' : idx === 3 ? 'fa-bell' : 'fa-smile'} text-xl"></i></div><p class="text-xs font-semibold mt-2 ${idx === currentIdx ? 'text-orange-600' : 'text-gray-400'}">${step}</p></div>`).join('')}</div></div>
             <p class="text-sm text-gray-500 mt-4"><i class="far fa-clock"></i> Estimated: ${currentOrder.estimatedTime || 20} mins</p>
           </div>
           
-          <div class="bg-white rounded-2xl shadow-xl p-5 mt-4 text-left">
-            <h3 class="font-bold mb-3"><i class="fas fa-receipt text-orange-600"></i> Order Summary</h3>
-            ${currentOrder.items.map(item => `<div class="flex justify-between text-sm py-1"><span>${item.name} x${item.quantity}</span><span class="font-medium">${formatCurrency(item.price * item.quantity)}</span></div>`).join('')}
-            <div class="border-t pt-2 mt-2"><div class="flex justify-between font-bold"><span>Total Paid</span><span class="text-orange-600">${formatCurrency(currentOrder.totalPrice)}</span></div></div>
-          </div>
+          <div class="bg-white rounded-2xl p-5 mt-4 text-left"><h3 class="font-bold mb-3">Order Summary</h3>${currentOrder.items.map(item => `<div class="flex justify-between text-sm py-1"><span>${item.name} x${item.quantity}</span><span>${formatCurrency(item.price * item.quantity)}</span></div>`).join('')}<div class="border-t pt-2 mt-2"><div class="flex justify-between font-bold"><span>Total</span><span class="text-orange-600">${formatCurrency(currentOrder.totalPrice)}</span></div></div></div>
           
-          <button id="newOrderBtn" class="mt-6 bg-orange-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-orange-700 transition">New Order</button>
+          <button id="newOrderBtn" class="mt-6 bg-orange-600 text-white px-8 py-3 rounded-xl font-bold">New Order</button>
         </div>
       </div>
     `;
   }
   
-  // ======================== EVENT HANDLERS ========================
   function attachEvents() {
     if (currentStep === 1) {
-      document.querySelectorAll('.table-btn').forEach(btn => {
-        btn.addEventListener('click', () => { tableNumber = parseInt(btn.dataset.table); isTableLocked = true; saveTableToStorage(tableNumber); render(); });
-      });
-      document.getElementById('clearTableBtn')?.addEventListener('click', () => { localStorage.removeItem(TABLE_STORAGE_KEY); tableNumber = null; isTableLocked = false; cart = []; render(); });
-      document.getElementById('fabWaiter')?.addEventListener('click', () => requestService('waiter'));
-      document.getElementById('fabWater')?.addEventListener('click', () => requestService('water'));
-      document.getElementById('fabBill')?.addEventListener('click', () => requestService('bill'));
-      document.querySelectorAll('[data-foodtype]').forEach(btn => {
-        btn.addEventListener('click', () => { selectedFoodType = btn.dataset.foodtype; render(); });
-      });
-      document.querySelectorAll('.category-tab').forEach(btn => {
-        btn.addEventListener('click', () => { selectedCategory = btn.dataset.category; render(); });
-      });
-      document.querySelectorAll('.add-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const card = btn.closest('.menu-card');
-          if (card && card.dataset.item) addToCart(JSON.parse(card.dataset.item));
-        });
-      });
-      document.getElementById('checkoutBtn')?.addEventListener('click', () => { currentStep = 2; render(); });
+      document.querySelectorAll('[data-foodtype]').forEach(btn => { btn.addEventListener('click', () => { selectedFoodType = btn.dataset.foodtype; render(); }); });
+      document.querySelectorAll('.category-tab').forEach(btn => { btn.addEventListener('click', () => { selectedCategory = btn.dataset.category; render(); }); });
+      document.querySelectorAll('.add-to-cart-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.stopPropagation(); const card = btn.closest('.menu-item'); if (card && card.dataset.item) addToCart(JSON.parse(card.dataset.item)); }); });
+      document.getElementById('viewCartBtn')?.addEventListener('click', () => { currentStep = 2; render(); });
+      document.getElementById('checkoutFloatingBtn')?.addEventListener('click', () => { currentStep = 2; render(); });
     }
-    
     if (currentStep === 2) {
-      document.getElementById('backBtn')?.addEventListener('click', () => { currentStep = 1; render(); });
-      document.querySelectorAll('.qty-inc').forEach(btn => {
-        btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), 1));
-      });
-      document.querySelectorAll('.qty-dec').forEach(btn => {
-        btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), -1));
-      });
-      document.querySelectorAll('.remove-item').forEach(btn => {
-        btn.addEventListener('click', () => updateQuantity(parseInt(btn.dataset.index), -999));
-      });
-      document.getElementById('placeOrderBtn')?.addEventListener('click', async () => { await placeOrder(); });
+      document.getElementById('backToMenuFromCart')?.addEventListener('click', () => { currentStep = 1; render(); });
+      document.getElementById('backToMenuEmptyBtn')?.addEventListener('click', () => { currentStep = 1; render(); });
+      document.querySelectorAll('.qty-inc').forEach(btn => { btn.addEventListener('click', () => { updateQuantity(parseInt(btn.dataset.index), 1); }); });
+      document.querySelectorAll('.qty-dec').forEach(btn => { btn.addEventListener('click', () => { updateQuantity(parseInt(btn.dataset.index), -1); }); });
+      document.querySelectorAll('.remove-item').forEach(btn => { btn.addEventListener('click', () => { removeFromCart(parseInt(btn.dataset.index)); }); });
+      document.getElementById('placeOrderBtn')?.addEventListener('click', async () => { if (await placeOrder()) { currentStep = 3; render(); } });
     }
-    
     if (currentStep === 3) {
       document.getElementById('newOrderBtn')?.addEventListener('click', () => { currentOrderId = null; currentOrder = null; currentStep = 1; if (unsubscribeOrder) unsubscribeOrder(); render(); });
     }
   }
   
   function render() {
-    const root = document.getElementById('customer-app');
+    const root = document.getElementById('app-root');
     if (!root) return;
-    
     let html = '';
     if (currentStep === 1) html = renderMenuStep();
     else if (currentStep === 2) html = renderCartStep();
     else if (currentStep === 3) html = renderConfirmationStep();
-    
     root.innerHTML = html;
     attachEvents();
   }
   
-  // ======================== INITIALIZATION ========================
   function init() {
-    initializeTable();
     loadCart();
     loadMenuFromFirebase();
     render();
@@ -567,4 +465,3 @@ Here is the complete customer portal code that is fully connected to your admin 
 </script>
 </body>
 </html>
-```
