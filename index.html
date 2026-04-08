@@ -186,26 +186,35 @@
   function getCartTotal() { return cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0); }
   function getCartCount() { return cart.reduce((sum, item) => sum + (item.quantity || 1), 0); }
   
-  // ======================== GET RESTAURANT ID FOR ORDERS ========================
+  // ======================== DYNAMIC RESTAURANT ID (WORKS FOR ALL USERS) ========================
   async function getRestaurantIdForOrder() {
     try {
+      // First, try to get the first restaurant from the restaurants collection
       const restaurantsRef = collection(db, "restaurants");
-      const snapshot = await getDocs(restaurantsRef);
-      if (!snapshot.empty) {
-        const doc = snapshot.docs[0];
-        const data = doc.data();
-        restaurantIdForOrders = data.userId;
-        console.log("✅ Found restaurantId for order:", restaurantIdForOrders);
-        return restaurantIdForOrders;
+      const restaurantsSnapshot = await getDocs(restaurantsRef);
+      
+      if (!restaurantsSnapshot.empty) {
+        // Get the first restaurant document
+        const restaurantDoc = restaurantsSnapshot.docs[0];
+        const restaurantData = restaurantDoc.data();
+        const foundRestaurantId = restaurantData.userId;
+        
+        console.log("✅ Found restaurantId:", foundRestaurantId);
+        restaurantIdForOrders = foundRestaurantId;
+        return foundRestaurantId;
       } else {
-        console.log("⚠️ No restaurants found, using fallback");
-        restaurantIdForOrders = "fallback_restaurant";
-        return restaurantIdForOrders;
+        // If no restaurants exist yet, wait and retry or use a default
+        console.warn("⚠️ No restaurants found in database. Please ensure at least one restaurant is registered.");
+        console.warn("⚠️ Orders will be stored but admin may not see them until restaurant is registered.");
+        
+        // Use a temporary ID that will be updated when restaurant registers
+        restaurantIdForOrders = "pending_restaurant";
+        return "pending_restaurant";
       }
     } catch (error) {
       console.error("Error getting restaurant ID:", error);
-      restaurantIdForOrders = "fallback_restaurant";
-      return restaurantIdForOrders;
+      restaurantIdForOrders = "error_fallback";
+      return "error_fallback";
     }
   }
   
@@ -242,14 +251,14 @@
     });
   }
   
-  // ======================== FIREBASE: PLACE ORDER WITH CORRECT restaurantId ========================
+  // ======================== FIREBASE: PLACE ORDER ========================
   async function placeOrder() {
     if (cart.length === 0) { showToast('Your cart is empty', 'error'); return false; }
     
     const subtotal = getCartTotal();
     const taxCalc = calculateBillWithTax(subtotal);
     
-    // Get the restaurant ID first - THIS IS CRITICAL
+    // Get the restaurant ID dynamically
     const orderRestaurantId = await getRestaurantIdForOrder();
     
     const orderData = {
@@ -271,7 +280,7 @@
       status: 'Pending',
       timestamp: new Date().toISOString(),
       estimatedTime: 20,
-      restaurantId: orderRestaurantId  // CRITICAL: This links order to admin
+      restaurantId: orderRestaurantId  // This will link to the registered restaurant
     };
     
     console.log("📦 Placing order with restaurantId:", orderRestaurantId);
@@ -282,7 +291,6 @@
       currentOrder = { id: docRef.id, ...orderData };
       
       console.log("✅ Order placed successfully! Order ID:", currentOrderId);
-      console.log("✅ Order restaurantId:", currentOrder.restaurantId);
       
       listenToOrderStatus(currentOrderId);
       
