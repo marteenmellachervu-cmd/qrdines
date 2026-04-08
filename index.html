@@ -124,6 +124,7 @@
   let isLoading = true;
   let unsubscribeMenu = null;
   let unsubscribeOrder = null;
+  let currentRestaurantId = null;
   
   const categories = ['All', 'Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts'];
   
@@ -185,7 +186,27 @@
   function getCartTotal() { return cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0); }
   function getCartCount() { return cart.reduce((sum, item) => sum + (item.quantity || 1), 0); }
   
-  // ======================== FIREBASE: REAL-TIME MENU FROM ADMIN ========================
+  // ======================== FIREBASE: GET RESTAURANT ID ========================
+  async function getRestaurantId() {
+    try {
+      const restaurantsRef = collection(db, "restaurants");
+      const q = query(restaurantsRef);
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0];
+        currentRestaurantId = doc.data().userId;
+        console.log("✅ Restaurant ID found:", currentRestaurantId);
+      } else {
+        console.log("⚠️ No restaurant found, using default");
+        currentRestaurantId = "default_restaurant";
+      }
+    } catch (error) {
+      console.error("Error getting restaurant ID:", error);
+      currentRestaurantId = "default_restaurant";
+    }
+  }
+  
+  // ======================== FIREBASE: REAL-TIME MENU ========================
   function loadMenuFromFirebase() {
     isLoading = true;
     render();
@@ -218,16 +239,25 @@
     });
   }
   
-  // ======================== FIREBASE: PLACE ORDER ========================
+  // ======================== FIREBASE: PLACE ORDER WITH RESTAURANT ID ========================
   async function placeOrder() {
     if (cart.length === 0) { showToast('Your cart is empty', 'error'); return false; }
     
     const subtotal = getCartTotal();
     const taxCalc = calculateBillWithTax(subtotal);
     
+    // Get restaurant ID first
+    await getRestaurantId();
+    
     const orderData = {
       tableNumber: parseInt(tableNumber),
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity || 1 })),
+      items: cart.map(i => ({ 
+        id: i.id, 
+        name: i.name, 
+        price: i.price, 
+        quantity: i.quantity || 1,
+        veg: i.veg || true
+      })),
       subtotal: subtotal,
       cgst: taxCalc.cgst,
       sgst: taxCalc.sgst,
@@ -237,7 +267,8 @@
       totalPrice: taxCalc.grandTotal,
       status: 'Pending',
       timestamp: new Date().toISOString(),
-      estimatedTime: 20
+      estimatedTime: 20,
+      restaurantId: currentRestaurantId  // CRITICAL: Link to admin's restaurant
     };
     
     try {
@@ -260,7 +291,7 @@
     }
   }
   
-  // ======================== FIREBASE: REAL-TIME ORDER STATUS FROM ADMIN ========================
+  // ======================== FIREBASE: REAL-TIME ORDER STATUS ========================
   function listenToOrderStatus(orderId) {
     if (unsubscribeOrder) unsubscribeOrder();
     
