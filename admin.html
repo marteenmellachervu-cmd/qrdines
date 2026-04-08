@@ -14,6 +14,8 @@
     .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.15); }
     .badge-available { background: #dcfce7; color: #166534; }
     .badge-unavailable { background: #fee2e2; color: #991b1b; }
+    .veg-badge { background: #dcfce7; color: #166534; }
+    .nonveg-badge { background: #fee2e2; color: #991b1b; }
     .order-row:hover { background: #fef3c7; }
     .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -24,7 +26,9 @@
     .modal-enter { animation: fadeIn 0.2s ease-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .compress-progress { transition: width 0.3s ease; }
-    .restaurant-badge { background: linear-gradient(135deg, #f97316, #ea580c); }
+    .veg-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .veg-dot.green { background: #22c55e; }
+    .veg-dot.red { background: #ef4444; }
   </style>
 </head>
 <body>
@@ -97,10 +101,9 @@
   let isCompressing = false;
   let compressProgress = 0;
   let showTaxModal = false;
-  let showRestaurantSetup = false;
-  let restaurantName = '';
-  let restaurantAddress = '';
-  let restaurantPhone = '';
+  
+  // New fields for veg/non-veg selection
+  let selectedVegStatus = true; // true = Veg, false = Non-Veg
   
   const categories = ['Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts', 'Soups', 'Salads', 'Seafood', 'Tandoor', 'Rolls', 'Combo Meals'];
   
@@ -248,107 +251,83 @@
     }
   }
   
-  async function updateRestaurantProfile(restaurantId, data) {
-    try {
-      const restaurantRef = doc(db, "restaurants", restaurantId);
-      await updateDoc(restaurantRef, {
-        ...data,
-        updatedAt: serverTimestamp()
-      });
-      return true;
-    } catch (error) {
-      console.error("Error updating restaurant profile:", error);
-      return false;
-    }
-  }
-  
   // ======================== DATA ISOLATION - QUERIES WITH userId ========================
   function listenToMenu() {
     if (!isLoggedIn || !currentUser) return;
   
-  isLoading = true;
-  render();
-  
-  const menuRef = collection(db, "menu");
-  // Remove orderBy to avoid needing index
-  const menuQuery = query(
-    menuRef, 
-    where("restaurantId", "==", currentUser.uid)
-  );
-  
-  onSnapshot(menuQuery, (snapshot) => {
-    menuItems = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      menuItems.push({ 
-        id: doc.id,
-        name: data.name || '',
-        price: data.price || 0,
-        category: data.category || '',
-        description: data.description || '',
-        image: data.image || "https://placehold.co/400x200/e2e8f0/475569?text=No+Image",
-        available: data.available !== false,
-        rating: data.rating || 4.5,
-        veg: data.veg || true,
-        popular: data.popular || false,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt
+    isLoading = true;
+    render();
+    
+    const menuRef = collection(db, "menu");
+    const menuQuery = query(menuRef, where("restaurantId", "==", currentUser.uid));
+    
+    onSnapshot(menuQuery, (snapshot) => {
+      menuItems = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        menuItems.push({ 
+          id: doc.id,
+          name: data.name || '',
+          price: data.price || 0,
+          category: data.category || '',
+          description: data.description || '',
+          image: data.image || "https://placehold.co/400x200/e2e8f0/475569?text=No+Image",
+          available: data.available !== false,
+          rating: data.rating || 4.5,
+          veg: data.veg !== undefined ? data.veg : true,
+          popular: data.popular || false,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt
+        });
       });
+      menuItems.sort((a, b) => {
+        if (a.createdAt && b.createdAt) {
+          return b.createdAt.seconds - a.createdAt.seconds;
+        }
+        return 0;
+      });
+      isLoading = false;
+      if (currentView === 'menu') render();
+      console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
+    }, (error) => {
+      console.error("Error loading menu:", error);
+      isLoading = false;
+      showNotification("Error loading menu: " + error.message, "error");
     });
-    // Sort in JavaScript instead of Firebase
-    menuItems.sort((a, b) => {
-      if (a.createdAt && b.createdAt) {
-        return b.createdAt.seconds - a.createdAt.seconds;
-      }
-      return 0;
-    });
-    isLoading = false;
-    if (currentView === 'menu') render();
-    console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
-  }, (error) => {
-    console.error("Error loading menu:", error);
-    isLoading = false;
-    showNotification("Error loading menu: " + error.message, "error");
-  });
   }
   
   function listenToOrders() {
-  if (!isLoggedIn || !currentUser) return;
-  
-  const ordersRef = collection(db, "orders");
-  // Remove orderBy to avoid needing index
-  const ordersQuery = query(
-    ordersRef, 
-    where("restaurantId", "==", currentUser.uid)
-  );
-  
-  onSnapshot(ordersQuery, (snapshot) => {
-    orders = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      orders.push({ 
-        id: doc.id,
-        tableNumber: data.tableNumber,
-        items: data.items || [],
-        subtotal: data.subtotal,
-        cgst: data.cgst,
-        sgst: data.sgst,
-        serviceCharge: data.serviceCharge,
-        totalPrice: data.totalPrice,
-        status: data.status || 'Pending',
-        timestamp: data.timestamp
+    if (!isLoggedIn || !currentUser) return;
+    
+    const ordersRef = collection(db, "orders");
+    const ordersQuery = query(ordersRef, where("restaurantId", "==", currentUser.uid));
+    
+    onSnapshot(ordersQuery, (snapshot) => {
+      orders = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        orders.push({ 
+          id: doc.id,
+          tableNumber: data.tableNumber,
+          items: data.items || [],
+          subtotal: data.subtotal,
+          cgst: data.cgst,
+          sgst: data.sgst,
+          serviceCharge: data.serviceCharge,
+          totalPrice: data.totalPrice,
+          status: data.status || 'Pending',
+          timestamp: data.timestamp
+        });
       });
+      orders.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      if (currentView === 'dashboard' || currentView === 'orders') render();
+      console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
+    }, (error) => {
+      console.error("Error loading orders:", error);
     });
-    // Sort in JavaScript instead of Firebase
-    orders.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    if (currentView === 'dashboard' || currentView === 'orders') render();
-    console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
-  }, (error) => {
-    console.error("Error loading orders:", error);
-  });
-}
+  }
   
-  // ======================== MENU CRUD WITH RESTAURANT ID ========================
+  // ======================== MENU CRUD WITH VEG/NON-VEG SUPPORT ========================
   async function addMenuItem(itemData, file) {
     try {
       let imageData = "https://placehold.co/400x200/e2e8f0/475569?text=No+Image";
@@ -358,7 +337,7 @@
       }
       
       const menuItem = {
-        restaurantId: currentUser.uid,  // CRITICAL: Isolate by restaurant
+        restaurantId: currentUser.uid,
         name: itemData.name,
         price: parseFloat(itemData.price),
         category: itemData.category,
@@ -366,7 +345,7 @@
         image: imageData,
         available: true,
         rating: 4.5,
-        veg: true,
+        veg: itemData.veg,  // Store veg/non-veg status
         popular: false,
         createdBy: currentUser?.uid,
         createdByEmail: currentUser?.email,
@@ -398,6 +377,7 @@
         category: updates.category,
         description: updates.description || '',
         image: imageData,
+        veg: updates.veg,
         updatedBy: currentUser?.uid,
         updatedByEmail: currentUser?.email,
         updatedAt: serverTimestamp()
@@ -454,43 +434,43 @@
   }
   
   // ======================== DEFAULT MENU FOR NEW RESTAURANT ========================
-  async function initializeDefaultMenuForRestaurant(){
-  if (!currentUser) return;
-  
-  try {
-    const menuRef = collection(db, "menu");
-    // Remove limit and just check if any items exist for this restaurant
-    const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid)));
+  async function initializeDefaultMenuForRestaurant() {
+    if (!currentUser) return;
     
-    if (existingItems.empty) {
-      console.log("📝 Initializing default menu for new restaurant...");
+    try {
+      const menuRef = collection(db, "menu");
+      const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid)));
       
-      const defaultMenu = [
-        { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
-        { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
-        { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-        { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-        { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-        { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
-        { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
-      ];
-      
-      for (const item of defaultMenu) {
-        await addDoc(collection(db, "menu"), {
-          ...item,
-          restaurantId: currentUser.uid,
-          available: true,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
+      if (existingItems.empty) {
+        console.log("📝 Initializing default menu for new restaurant...");
+        
+        const defaultMenu = [
+          { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
+          { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
+          { name: "🍗 Chicken 65", price: 280, category: "Starters", description: "Spicy deep-fried chicken", image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
+          { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
+          { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+          { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
+          { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
+          { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
+        ];
+        
+        for (const item of defaultMenu) {
+          await addDoc(collection(db, "menu"), {
+            ...item,
+            restaurantId: currentUser.uid,
+            available: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+        console.log("✅ Default menu added for new restaurant!");
+        showNotification("Welcome! Default menu items added to your restaurant.", "success");
       }
-      console.log("✅ Default menu added for new restaurant!");
-      showNotification("Welcome! Default menu items added to your restaurant.", "success");
+    } catch (error) {
+      console.error("Error initializing menu:", error);
     }
-  } catch (error) {
-    console.error("Error initializing menu:", error);
   }
-}
   
   // ======================== AUTHENTICATION FUNCTIONS ========================
   async function loginUser(email, password) {
@@ -499,7 +479,6 @@
       currentUser = userCredential.user;
       isLoggedIn = true;
       
-      // Get restaurant profile
       userRestaurantData = await getRestaurantProfile(currentUser.uid);
       
       localStorage.setItem('admin_logged', 'true');
@@ -508,7 +487,6 @@
       
       showNotification(`Welcome back, ${userRestaurantData?.name || email}!`, 'success');
       
-      // Load data for this specific restaurant
       initializeDefaultMenuForRestaurant();
       listenToMenu();
       listenToOrders();
@@ -532,10 +510,8 @@
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       currentUser = userCredential.user;
       
-      // Update profile
       await updateProfile(currentUser, { displayName: name });
       
-      // Create restaurant profile
       userRestaurantData = await createRestaurantProfile(currentUser.uid, restaurantNameInput, address, phone);
       
       isLoggedIn = true;
@@ -545,7 +521,6 @@
       
       showNotification(`Welcome ${name}! Your restaurant "${restaurantNameInput}" is ready.`, 'success');
       
-      // Initialize default menu for this restaurant
       await initializeDefaultMenuForRestaurant();
       listenToMenu();
       listenToOrders();
@@ -823,7 +798,13 @@
               </div>
               <div class="p-4">
                 <div class="flex justify-between items-start mb-2">
-                  <div><h3 class="font-bold text-lg">${escapeHtml(item.name)}</h3><p class="text-xs text-gray-500">${item.category}</p></div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>
+                      <h3 class="font-bold text-lg">${escapeHtml(item.name)}</h3>
+                    </div>
+                    <p class="text-xs text-gray-500">${item.category}</p>
+                  </div>
                   <p class="text-orange-600 font-bold text-xl">${formatCurrency(item.price)}</p>
                 </div>
                 <p class="text-gray-500 text-sm mb-4">${escapeHtml(item.description || 'No description')}</p>
@@ -831,6 +812,9 @@
                   <button class="editItemBtn flex-1 bg-gray-100 text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-200" data-id="${item.id}"><i class="fas fa-edit mr-1"></i> Edit</button>
                   <button class="toggleAvailBtn flex-1 ${item.available ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'} px-3 py-2 rounded-lg text-sm" data-id="${item.id}" data-available="${item.available}"><i class="fas ${item.available ? 'fa-ban' : 'fa-check'} mr-1"></i> ${item.available ? 'Block' : 'Unblock'}</button>
                   <button class="deleteItemBtn bg-red-100 text-red-600 px-3 py-2 rounded-lg text-sm" data-id="${item.id}" data-name="${escapeHtml(item.name)}"><i class="fas fa-trash"></i></button>
+                </div>
+                <div class="mt-2 text-xs">
+                  <span class="${item.veg ? 'veg-badge' : 'nonveg-badge'} px-2 py-0.5 rounded-full">${item.veg ? 'Vegetarian' : 'Non-Vegetarian'}</span>
                 </div>
               </div>
             </div>
@@ -862,7 +846,15 @@
                 <div><h3 class="font-bold">Order #${order.id.slice(-8)}</h3><p class="text-sm text-gray-500">Table ${order.tableNumber} • ${new Date(order.timestamp).toLocaleString()}</p></div>
                 <div class="text-right"><p class="text-2xl font-bold text-orange-600">${formatCurrency(order.totalPrice)}</p><span class="px-3 py-1 rounded-full text-xs ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : order.status === 'Preparing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}">${order.status}</span></div>
               </div>
-              <div class="border-t pt-3 mb-3"><p class="font-medium mb-2">Items:</p>${order.items.map(item => `<div class="flex justify-between text-sm"><span>${escapeHtml(item.name)} x${item.quantity}</span><span>${formatCurrency(item.price * item.quantity)}</span></div>`).join('')}</div>
+              <div class="border-t pt-3 mb-3"><p class="font-medium mb-2">Items:</p>${order.items.map(item => `
+                <div class="flex justify-between text-sm items-center">
+                  <div class="flex items-center gap-2">
+                    <span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>
+                    <span>${escapeHtml(item.name)} x${item.quantity}</span>
+                  </div>
+                  <span>${formatCurrency(item.price * item.quantity)}</span>
+                </div>
+              `).join('')}</div>
               <div class="flex gap-2">
                 ${order.status === 'Pending' ? `<button class="acceptOrderBtn bg-green-500 text-white px-4 py-2 rounded-lg text-sm" data-id="${order.id}"><i class="fas fa-check mr-1"></i> Accept & Prepare</button>` : ''}
                 ${order.status === 'Preparing' ? `<button class="serveOrderBtn bg-purple-500 text-white px-4 py-2 rounded-lg text-sm" data-id="${order.id}"><i class="fas fa-check-double mr-1"></i> Mark as Served</button>` : ''}
@@ -910,6 +902,24 @@
             <div><label class="block text-sm font-medium mb-1">Price (₹) *</label><input type="number" id="itemPrice" class="w-full border rounded-lg px-3 py-2" placeholder="299" value="${item.price || ''}"></div>
             <div><label class="block text-sm font-medium mb-1">Category</label><select id="itemCategory" class="w-full border rounded-lg px-3 py-2">${categories.map(c => `<option value="${c}" ${item.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
             <div><label class="block text-sm font-medium mb-1">Description</label><textarea id="itemDescription" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Brief description">${escapeHtml(item.description || '')}</textarea></div>
+            
+            <!-- Veg/Non-Veg Selection -->
+            <div>
+              <label class="block text-sm font-medium mb-2">Food Type *</label>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="foodType" value="veg" ${(item.veg !== undefined ? item.veg : selectedVegStatus) ? 'checked' : ''} class="w-4 h-4 text-green-600">
+                  <span class="veg-dot green"></span>
+                  <span class="font-medium">Vegetarian</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="foodType" value="nonveg" ${(item.veg !== undefined ? !item.veg : !selectedVegStatus) ? 'checked' : ''} class="w-4 h-4 text-red-600">
+                  <span class="veg-dot red"></span>
+                  <span class="font-medium">Non-Vegetarian</span>
+                </label>
+              </div>
+            </div>
+            
             <div><label class="block text-sm font-medium mb-1">Upload Image</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images compressed to under 400KB</p></div>
           </div>
           <div class="flex gap-3 mt-6"><button id="saveItemBtn" class="flex-1 bg-orange-600 text-white py-2 rounded-lg font-semibold" ${isCompressing ? 'disabled' : ''}><i class="fas fa-save mr-2"></i> ${isEditing ? 'Update Item' : 'Add Item'}</button><button id="cancelModalBtn" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div>
@@ -993,13 +1003,26 @@
     document.getElementById('viewAllOrdersBtn')?.addEventListener('click', () => { currentView = 'orders'; currentTab = 'pending'; render(); });
     document.getElementById('backToDashboard')?.addEventListener('click', () => { currentView = 'dashboard'; render(); });
     document.getElementById('backToDashboardOrders')?.addEventListener('click', () => { currentView = 'dashboard'; render(); });
-    document.getElementById('addItemBtn')?.addEventListener('click', () => { editingItem = null; selectedFile = null; imagePreviewUrl = null; showModal = true; render(); });
+    document.getElementById('addItemBtn')?.addEventListener('click', () => { 
+      editingItem = null; 
+      selectedFile = null; 
+      imagePreviewUrl = null; 
+      selectedVegStatus = true;
+      showModal = true; 
+      render(); 
+    });
     document.getElementById('taxSettingsBtn')?.addEventListener('click', () => { showTaxModal = true; render(); });
     
     document.getElementById('itemFile')?.addEventListener('change', handleFileSelect);
     
     document.querySelectorAll('.editItemBtn').forEach(btn => {
-      btn.addEventListener('click', () => { editingItem = menuItems.find(i => i.id === btn.dataset.id); selectedFile = null; imagePreviewUrl = editingItem?.image || null; showModal = true; render(); });
+      btn.addEventListener('click', () => { 
+        editingItem = menuItems.find(i => i.id === btn.dataset.id); 
+        selectedFile = null; 
+        imagePreviewUrl = editingItem?.image || null; 
+        showModal = true; 
+        render(); 
+      });
     });
     
     document.querySelectorAll('.toggleAvailBtn').forEach(btn => {
@@ -1049,15 +1072,19 @@
       const description = document.getElementById('itemDescription')?.value;
       const file = document.getElementById('itemFile')?.files[0];
       
+      // Get veg/non-veg selection
+      const foodTypeRadio = document.querySelector('input[name="foodType"]:checked');
+      const isVeg = foodTypeRadio?.value === 'veg';
+      
       if (!name || !price || isNaN(price) || price <= 0) {
         showNotification('Please enter valid name and price', 'error');
         return;
       }
       
       if (editingItem) {
-        await updateMenuItem(editingItem.id, { name, price, category, description }, file);
+        await updateMenuItem(editingItem.id, { name, price, category, description, veg: isVeg }, file);
       } else {
-        await addMenuItem({ name, price, category, description }, file);
+        await addMenuItem({ name, price, category, description, veg: isVeg }, file);
       }
       closeModal();
     });
