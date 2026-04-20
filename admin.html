@@ -3,36 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>QR Dine | Multi-Restaurant Admin Portal</title>
+  <title>RestoPOS | Professional Restaurant Admin Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { font-family: 'Inter', sans-serif; }
-    body { background: #f1f5f9; }
-    .menu-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; }
-    .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.15); }
-    .badge-available { background: #dcfce7; color: #166534; }
-    .badge-unavailable { background: #fee2e2; color: #991b1b; }
-    .veg-badge { background: #dcfce7; color: #166534; }
-    .nonveg-badge { background: #fee2e2; color: #991b1b; }
-    .order-row:hover { background: #fef3c7; }
-    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .image-preview { width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #f97316; }
-    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; animation: slideUp 0.3s ease-out; }
-    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .menu-image { width: 100%; height: 180px; object-fit: cover; background: #f1f5f9; }
-    .modal-enter { animation: fadeIn 0.2s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .compress-progress { transition: width 0.3s ease; }
+    .sidebar-item { transition: all 0.2s ease; cursor: pointer; }
+    .sidebar-item:hover { background: #fef3c7; color: #f97316; }
+    .sidebar-item.active { background: linear-gradient(135deg, #f97316, #ea580c); color: white; box-shadow: 0 4px 12px rgba(249,115,22,0.3); }
+    .menu-item-card { transition: all 0.2s ease; cursor: pointer; }
+    .menu-item-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -6px rgba(0,0,0,0.1); }
+    .pos-item { transition: all 0.1s ease; cursor: pointer; }
+    .pos-item:active { transform: scale(0.98); }
     .veg-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
     .veg-dot.green { background: #22c55e; }
     .veg-dot.red { background: #ef4444; }
+    .toast { animation: slideIn 0.3s ease-out; position: fixed; bottom: 20px; right: 20px; z-index: 1000; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
+    @media print { body * { visibility: hidden; } .receipt-print, .receipt-print * { visibility: visible; } .receipt-print { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; background: white; z-index: 9999; } }
+    .receipt { font-family: monospace; max-width: 350px; margin: 0 auto; }
+    .image-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; border: 2px solid #f97316; margin-top: 10px; }
+    .upload-area { border: 2px dashed #cbd5e1; border-radius: 12px; transition: all 0.2s; cursor: pointer; }
+    .upload-area:hover { border-color: #f97316; background: #fef3c7; }
+    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-<div id="admin-root"></div>
+<div id="root"></div>
 
 <script type="module">
   // ======================== FIREBASE CONFIGURATION ========================
@@ -46,7 +46,6 @@
     measurementId: "G-8Y4DWD208G"
   };
 
-  // Import Firebase modules
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { 
     getFirestore, 
@@ -57,11 +56,10 @@
     doc, 
     onSnapshot, 
     query, 
-    orderBy, 
+    where, 
     serverTimestamp,
     getDocs,
-    where,
-    limit 
+    orderBy
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
   import {
     getAuth,
@@ -72,1030 +70,528 @@
     updateProfile
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   const auth = getAuth(app);
-  
-  // ======================== TAX/GST CONFIGURATION ========================
-  const TAX_CONFIG = {
-    cgst: { rate: 2.5, name: "CGST", enabled: true },
-    sgst: { rate: 2.5, name: "SGST", enabled: true },
-    serviceCharge: { rate: 5, name: "Service Charge", enabled: true },
+
+  // ======================== RESTAURANT SETTINGS ========================
+  let restaurantSettings = {
+    name: 'Spice Garden',
+    address: '123 Food Street, MG Road, Bangalore - 560001',
+    phone: '+91 98765 43210',
+    gstin: '32ABCDE1234F1Z5',
+    cgstRate: 2.5,
+    sgstRate: 2.5,
     roundOff: true
   };
-  
-  // ======================== GLOBAL STATE ========================
+
+  // ======================== STATE ========================
   let menuItems = [];
   let orders = [];
   let currentUser = null;
   let userRestaurantData = null;
   let isLoggedIn = false;
-  let currentView = 'dashboard';
-  let currentTab = 'pending';
+  let currentSection = 'pos';
+  let currentOrder = [];
+  let orderCounter = 1;
+  let toast = null;
+  let showAddItemModal = false;
   let editingItem = null;
-  let showModal = false;
-  let selectedFile = null;
+  let selectedImageFile = null;
   let imagePreviewUrl = null;
+  let logs = [];
+  let salesData = [];
   let isLoading = true;
-  let isCompressing = false;
-  let compressProgress = 0;
-  let showTaxModal = false;
+  let unsubscribeMenu = null;
+  let unsubscribeOrders = null;
+
+  // Load order counter from localStorage
+  function loadOrderCounter() { const saved = localStorage.getItem('resto_order_counter'); if (saved) orderCounter = parseInt(saved); else orderCounter = 1; }
+  function saveOrderCounter() { localStorage.setItem('resto_order_counter', orderCounter); }
+
+  function formatCurrency(amount) { return '₹' + amount.toFixed(0); }
   
-  // New fields for veg/non-veg selection
-  let selectedVegStatus = true; // true = Veg, false = Non-Veg
-  
-  const categories = ['Starters', 'Main Course', 'Breads', 'Beverages', 'Desserts', 'Soups', 'Salads', 'Seafood', 'Tandoor', 'Rolls', 'Combo Meals'];
-  
-  // Image compression settings
-  const MAX_IMAGE_SIZE_KB = 400;
-  const MAX_IMAGE_DIMENSION = 800;
-  
-  // ======================== HELPER FUNCTIONS ========================
-  function showNotification(message, type = 'success') {
-    const toast = document.createElement('div');
-    const colors = { success: '#22c55e', error: '#ef4444', info: '#3b82f6', warning: '#f59e0b' };
-    const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', info: 'fa-info-circle', warning: 'fa-exclamation-triangle' };
-    toast.className = `toast px-5 py-3 rounded-lg shadow-lg text-white font-medium text-sm flex items-center gap-2`;
-    toast.style.background = colors[type] || colors.success;
-    toast.innerHTML = `<i class="fas ${icons[type]} mr-2"></i>${message}`;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+  function showToast(message, type = 'success') {
+    toast = { message, type };
+    render();
+    setTimeout(() => { toast = null; render(); }, 3000);
   }
-  
-  function formatCurrency(amount) {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
-  }
-  
-  function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-      if (m === '&') return '&amp;';
-      if (m === '<') return '&lt;';
-      if (m === '>') return '&gt;';
-      return m;
-    });
-  }
-  
-  // ======================== IMAGE COMPRESSION ========================
-  function compressImage(file) {
-    return new Promise((resolve, reject) => {
-      if (!file) {
-        resolve("https://placehold.co/400x200/e2e8f0/475569?text=No+Image");
-        return;
-      }
-      
-      if (!file.type.startsWith('image/')) {
-        resolve("https://placehold.co/400x200/e2e8f0/475569?text=Not+an+Image");
-        return;
-      }
-      
-      isCompressing = true;
-      compressProgress = 0;
-      render();
-      
+
+  // Image upload handler
+  function handleImageUpload(file) {
+    return new Promise((resolve) => {
+      if (!file) { resolve(null); return; }
       const reader = new FileReader();
+      reader.onload = (e) => { resolve(e.target.result); };
       reader.readAsDataURL(file);
-      reader.onload = (e) => {
-        const img = new Image();
-        img.src = e.target.result;
-        img.onload = () => {
-          compressProgress = 30;
-          render();
-          
-          let width = img.width;
-          let height = img.height;
-          
-          if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-            if (width > height) {
-              height = (height * MAX_IMAGE_DIMENSION) / width;
-              width = MAX_IMAGE_DIMENSION;
-            } else {
-              width = (width * MAX_IMAGE_DIMENSION) / height;
-              height = MAX_IMAGE_DIMENSION;
-            }
-          }
-          
-          compressProgress = 60;
-          render();
-          
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          let quality = 0.8;
-          let result = canvas.toDataURL('image/jpeg', quality);
-          
-          while (result.length > MAX_IMAGE_SIZE_KB * 1024 && quality > 0.1) {
-            quality -= 0.1;
-            result = canvas.toDataURL('image/jpeg', quality);
-          }
-          
-          compressProgress = 100;
-          render();
-          
-          setTimeout(() => {
-            isCompressing = false;
-            compressProgress = 0;
-            resolve(result);
-          }, 500);
-        };
-        img.onerror = () => {
-          isCompressing = false;
-          resolve("https://placehold.co/400x200/e2e8f0/475569?text=Invalid+Image");
-        };
-      };
-      reader.onerror = () => {
-        isCompressing = false;
-        reject("Failed to read file");
-      };
     });
   }
-  
-  // ======================== RESTAURANT DATA FUNCTIONS ========================
+
+  // GST Calculation with CGST, SGST, and Round Off
+  function calculateGST(subtotal) {
+    let cgst = (subtotal * restaurantSettings.cgstRate) / 100;
+    let sgst = (subtotal * restaurantSettings.sgstRate) / 100;
+    let totalTax = cgst + sgst;
+    let grandTotal = subtotal + totalTax;
+    let roundOff = 0;
+    if (restaurantSettings.roundOff) {
+      let rounded = Math.round(grandTotal);
+      roundOff = rounded - grandTotal;
+      grandTotal = rounded;
+    }
+    return { subtotal, cgst, sgst, totalTax, roundOff, grandTotal };
+  }
+
+  // ======================== FIREBASE DATA FUNCTIONS ========================
   async function createRestaurantProfile(userId, name, address, phone) {
     try {
-      const restaurantRef = collection(db, "restaurants");
-      const restaurantData = {
+      const docRef = await addDoc(collection(db, "restaurants"), {
         userId: userId,
         name: name,
         address: address,
         phone: phone,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      const docRef = await addDoc(restaurantRef, restaurantData);
-      return { id: docRef.id, ...restaurantData };
-    } catch (error) {
-      console.error("Error creating restaurant profile:", error);
-      throw error;
-    }
+        cgstRate: 2.5,
+        sgstRate: 2.5,
+        roundOff: true,
+        createdAt: serverTimestamp()
+      });
+      return { id: docRef.id };
+    } catch (error) { console.error(error); throw error; }
   }
-  
+
   async function getRestaurantProfile(userId) {
     try {
-      const restaurantsRef = collection(db, "restaurants");
-      const q = query(restaurantsRef, where("userId", "==", userId));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const doc = querySnapshot.docs[0];
-        return { id: doc.id, ...doc.data() };
+      const q = query(collection(db, "restaurants"), where("userId", "==", userId));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const data = snapshot.docs[0].data();
+        return { id: snapshot.docs[0].id, ...data };
       }
       return null;
-    } catch (error) {
-      console.error("Error getting restaurant profile:", error);
-      return null;
-    }
+    } catch (error) { return null; }
   }
-  
-  // ======================== DATA ISOLATION - QUERIES WITH userId ========================
+
   function listenToMenu() {
     if (!isLoggedIn || !currentUser) return;
-  
     isLoading = true;
-    render();
-    
-    const menuRef = collection(db, "menu");
-    const menuQuery = query(menuRef, where("restaurantId", "==", currentUser.uid));
-    
-    onSnapshot(menuQuery, (snapshot) => {
+    const menuQuery = query(collection(db, "menu"), where("restaurantId", "==", currentUser.uid));
+    if (unsubscribeMenu) unsubscribeMenu();
+    unsubscribeMenu = onSnapshot(menuQuery, (snapshot) => {
       menuItems = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        menuItems.push({ 
-          id: doc.id,
-          name: data.name || '',
-          price: data.price || 0,
-          category: data.category || '',
-          description: data.description || '',
-          image: data.image || "https://placehold.co/400x200/e2e8f0/475569?text=No+Image",
-          available: data.available !== false,
-          rating: data.rating || 4.5,
-          veg: data.veg !== undefined ? data.veg : true,
-          popular: data.popular || false,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt
-        });
-      });
-      menuItems.sort((a, b) => {
-        if (a.createdAt && b.createdAt) {
-          return b.createdAt.seconds - a.createdAt.seconds;
-        }
-        return 0;
+        menuItems.push({ id: doc.id, name: data.name || '', price: data.price || 0, category: data.category || '', description: data.description || '', image: data.image || "https://placehold.co/80x80/F97316/white?text=Food", veg: data.veg !== undefined ? data.veg : true, available: data.available !== false, prepTime: data.prepTime || 15, popular: data.popular || false });
       });
       isLoading = false;
-      if (currentView === 'menu') render();
-      console.log(`✅ Menu loaded for restaurant ${currentUser.uid}: ${menuItems.length} items`);
-    }, (error) => {
-      console.error("Error loading menu:", error);
-      isLoading = false;
-      showNotification("Error loading menu: " + error.message, "error");
-    });
+      render();
+    }, (error) => { isLoading = false; showToast("Error loading menu: " + error.message, "error"); });
   }
-  
+
   function listenToOrders() {
     if (!isLoggedIn || !currentUser) return;
-    
-    const ordersRef = collection(db, "orders");
-    const ordersQuery = query(ordersRef, where("restaurantId", "==", currentUser.uid));
-    
-    onSnapshot(ordersQuery, (snapshot) => {
+    const ordersQuery = query(collection(db, "orders"), where("restaurantId", "==", currentUser.uid), orderBy("timestamp", "desc"));
+    if (unsubscribeOrders) unsubscribeOrders();
+    unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       orders = [];
+      salesData = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        orders.push({ 
-          id: doc.id,
-          tableNumber: data.tableNumber,
-          items: data.items || [],
-          subtotal: data.subtotal,
-          cgst: data.cgst,
-          sgst: data.sgst,
-          serviceCharge: data.serviceCharge,
-          totalPrice: data.totalPrice,
-          status: data.status || 'Pending',
-          timestamp: data.timestamp
-        });
+        orders.push({ id: doc.id, ...data });
+        if (data.status !== 'Declined') {
+          salesData.push({ id: doc.id, amount: data.totalPrice, time: data.timestamp?.toDate?.() || new Date(), items: data.items?.length || 0 });
+        }
       });
-      orders.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      if (currentView === 'dashboard' || currentView === 'orders') render();
-      console.log(`✅ Orders loaded for restaurant ${currentUser.uid}: ${orders.length} orders`);
-    }, (error) => {
-      console.error("Error loading orders:", error);
+      render();
     });
   }
-  
-  // ======================== MENU CRUD WITH VEG/NON-VEG SUPPORT ========================
-  async function addMenuItem(itemData, file) {
+
+  async function addMenuItemToFirebase(itemData, file) {
     try {
-      let imageData = "https://placehold.co/400x200/e2e8f0/475569?text=No+Image";
-      
+      let imageData = "https://placehold.co/80x80/F97316/white?text=Food";
       if (file) {
-        imageData = await compressImage(file);
+        const reader = new FileReader();
+        imageData = await new Promise((resolve) => {
+          reader.onload = (e) => resolve(e.target.result);
+          reader.readAsDataURL(file);
+        });
       }
-      
-      const menuItem = {
+      await addDoc(collection(db, "menu"), {
         restaurantId: currentUser.uid,
         name: itemData.name,
         price: parseFloat(itemData.price),
         category: itemData.category,
         description: itemData.description || '',
         image: imageData,
+        veg: itemData.veg,
         available: true,
-        rating: 4.5,
-        veg: itemData.veg,  // Store veg/non-veg status
+        prepTime: itemData.prepTime || 15,
         popular: false,
-        createdBy: currentUser?.uid,
-        createdByEmail: currentUser?.email,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-      
-      const docRef = await addDoc(collection(db, "menu"), menuItem);
-      showNotification(`✅ "${itemData.name}" added to your restaurant!`, 'success');
+        createdAt: serverTimestamp()
+      });
+      showToast(`✅ "${itemData.name}" added!`, 'success');
       return true;
-    } catch (error) {
-      console.error("Error adding item:", error);
-      showNotification("Error adding item: " + error.message, 'error');
-      return false;
-    }
+    } catch (error) { showToast("Error: " + error.message, 'error'); return false; }
   }
-  
-  async function updateMenuItem(id, updates, newFile = null) {
+
+  async function updateMenuItemInFirebase(id, updates, file) {
     try {
-      let imageData = updates.image;
-      
-      if (newFile) {
-        imageData = await compressImage(newFile);
+      let updateData = { name: updates.name, price: parseFloat(updates.price), category: updates.category, description: updates.description || '', veg: updates.veg, updatedAt: serverTimestamp() };
+      if (file) {
+        const reader = new FileReader();
+        updateData.image = await new Promise((resolve) => {
+          reader.onload = (e) => resolve(e.target.result);
+          reader.readAsDataURL(file);
+        });
       }
-      
-      const updateData = {
-        name: updates.name,
-        price: parseFloat(updates.price),
-        category: updates.category,
-        description: updates.description || '',
-        image: imageData,
-        veg: updates.veg,
-        updatedBy: currentUser?.uid,
-        updatedByEmail: currentUser?.email,
-        updatedAt: serverTimestamp()
-      };
-      
       await updateDoc(doc(db, "menu", id), updateData);
-      showNotification(`✅ "${updates.name}" updated successfully!`, 'success');
+      showToast(`✅ "${updates.name}" updated!`, 'success');
       return true;
-    } catch (error) {
-      console.error("Error updating item:", error);
-      showNotification("Error updating item: " + error.message, 'error');
-      return false;
-    }
+    } catch (error) { showToast("Error: " + error.message, 'error'); return false; }
   }
-  
-  async function deleteMenuItem(id, name) {
-    if (!confirm(`⚠️ Delete "${name}" permanently?\n\nThis action cannot be undone!`)) return;
-    
-    try {
-      await deleteDoc(doc(db, "menu", id));
-      showNotification(`✅ "${name}" deleted successfully!`, 'success');
-    } catch (error) {
-      console.error("Error deleting item:", error);
-      showNotification("Error deleting item: " + error.message, 'error');
-    }
+
+  async function deleteMenuItemFromFirebase(id, name) {
+    if (!confirm(`⚠️ Delete "${name}" permanently?`)) return;
+    try { await deleteDoc(doc(db, "menu", id)); showToast(`✅ "${name}" deleted!`, 'success'); } 
+    catch (error) { showToast("Error deleting", 'error'); }
   }
-  
-  async function toggleAvailability(id, currentStatus) {
+
+  async function toggleAvailabilityInFirebase(id, currentStatus) {
+    try { await updateDoc(doc(db, "menu", id), { available: !currentStatus }); showToast(`Item ${!currentStatus ? 'available' : 'unavailable'}`, 'info'); } 
+    catch (error) { showToast("Error updating status", 'error'); }
+  }
+
+  async function saveOrderToFirebase(orderData) {
     try {
-      await updateDoc(doc(db, "menu", id), { 
-        available: !currentStatus,
-        updatedAt: serverTimestamp()
+      await addDoc(collection(db, "orders"), {
+        ...orderData,
+        restaurantId: currentUser.uid,
+        createdAt: serverTimestamp()
       });
-      showNotification(`Item ${!currentStatus ? 'available' : 'unavailable'}`, 'info');
-    } catch (error) {
-      console.error("Error toggling status:", error);
-      showNotification("Error updating status", 'error');
-    }
+    } catch (error) { console.error("Error saving order:", error); }
   }
-  
-  async function updateOrderStatus(orderId, newStatus) {
+
+  async function logActivity(event, details) {
     try {
-      await updateDoc(doc(db, "orders", orderId), {
-        status: newStatus,
-        updatedBy: currentUser?.uid,
-        updatedByEmail: currentUser?.email,
-        updatedAt: serverTimestamp()
+      await addDoc(collection(db, "logs"), {
+        restaurantId: currentUser.uid,
+        event: event,
+        details: details,
+        time: new Date().toLocaleString(),
+        timestamp: serverTimestamp()
       });
-      showNotification(`Order status updated to ${newStatus}`, 'success');
-    } catch (error) {
-      console.error("Error updating order:", error);
-      showNotification("Error updating order", 'error');
+    } catch (error) { console.error("Error logging:", error); }
+  }
+
+  // ======================== BUSINESS LOGIC ========================
+  function addToOrder(item) {
+    const existing = currentOrder.find(i => i.id === item.id);
+    if (existing) existing.quantity++;
+    else currentOrder.push({ ...item, quantity: 1 });
+    showToast(`${item.name} added to order`, 'success');
+    render();
+  }
+
+  function updateOrderQuantity(itemId, change) {
+    const item = currentOrder.find(i => i.id === itemId);
+    if (item) {
+      item.quantity += change;
+      if (item.quantity <= 0) currentOrder = currentOrder.filter(i => i.id !== itemId);
+      render();
     }
   }
-  
-  // ======================== DEFAULT MENU FOR NEW RESTAURANT ========================
-  async function initializeDefaultMenuForRestaurant() {
-    if (!currentUser) return;
+
+  function removeFromOrder(itemId) {
+    currentOrder = currentOrder.filter(i => i.id !== itemId);
+    render();
+  }
+
+  function getSubtotal() { return currentOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0); }
+  function getTaxDetails() { return calculateGST(getSubtotal()); }
+
+  function generateBillNumber() {
+    const billNum = String(orderCounter).padStart(4, '0');
+    orderCounter++;
+    saveOrderCounter();
+    return billNum;
+  }
+
+  async function generateReceipt() {
+    if (currentOrder.length === 0) { showToast('No items in order', 'error'); return; }
+    const billNumber = generateBillNumber();
+    const date = new Date().toLocaleString();
+    const subtotal = getSubtotal();
+    const taxDetails = calculateGST(subtotal);
     
-    try {
-      const menuRef = collection(db, "menu");
-      const existingItems = await getDocs(query(menuRef, where("restaurantId", "==", currentUser.uid)));
-      
-      if (existingItems.empty) {
-        console.log("📝 Initializing default menu for new restaurant...");
-        
-        const defaultMenu = [
-          { name: "🔥 Paneer Tikka", price: 220, category: "Starters", description: "Grilled cottage cheese with aromatic spices", image: "https://images.pexels.com/photos/1279330/pexels-photo-1279330.jpeg?w=150&h=150&fit=crop", rating: 4.8, veg: true, popular: true },
-          { name: "🌯 Veg Spring Roll", price: 180, category: "Starters", description: "Crispy rolls with fresh vegetables", image: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg?w=150&h=150&fit=crop", rating: 4.5, veg: true, popular: false },
-          { name: "🍗 Chicken 65", price: 280, category: "Starters", description: "Spicy deep-fried chicken", image: "https://images.pexels.com/photos/2338407/pexels-photo-2338407.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🍛 Chicken Biryani", price: 320, category: "Main Course", description: "Aromatic basmati rice with tender chicken", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: false, popular: true },
-          { name: "🥘 Veg Biryani", price: 250, category: "Main Course", description: "Fragrant rice with garden vegetables", image: "https://images.pexels.com/photos/1639557/pexels-photo-1639557.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🥖 Butter Naan", price: 45, category: "Breads", description: "Soft tandoori bread with butter", image: "https://images.pexels.com/photos/958545/pexels-photo-958545.jpeg?w=150&h=150&fit=crop", rating: 4.7, veg: true, popular: false },
-          { name: "🥭 Mango Lassi", price: 90, category: "Beverages", description: "Sweet mango yogurt drink", image: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true },
-          { name: "🍨 Gulab Jamun", price: 80, category: "Desserts", description: "Soft milk dumplings in syrup", image: "https://images.pexels.com/photos/2067401/pexels-photo-2067401.jpeg?w=150&h=150&fit=crop", rating: 4.9, veg: true, popular: true }
-        ];
-        
-        for (const item of defaultMenu) {
-          await addDoc(collection(db, "menu"), {
-            ...item,
-            restaurantId: currentUser.uid,
-            available: true,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
-        }
-        console.log("✅ Default menu added for new restaurant!");
-        showNotification("Welcome! Default menu items added to your restaurant.", "success");
-      }
-    } catch (error) {
-      console.error("Error initializing menu:", error);
-    }
+    const orderData = {
+      billNumber: billNumber,
+      items: currentOrder.map(i => ({ name: i.name, quantity: i.quantity, price: i.price, veg: i.veg })),
+      subtotal: subtotal,
+      cgst: taxDetails.cgst,
+      sgst: taxDetails.sgst,
+      totalPrice: taxDetails.grandTotal,
+      status: 'Completed',
+      timestamp: new Date().toISOString()
+    };
+    
+    await saveOrderToFirebase(orderData);
+    await logActivity(`BILL_GENERATED - ${billNumber}`, `${currentOrder.length} items, Total: ${formatCurrency(taxDetails.grandTotal)}`);
+    
+    const receiptHTML = `
+      <div class="receipt" style="font-family: monospace; max-width: 350px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 10px; margin-bottom: 10px;">
+          <h2 style="margin: 0; font-size: 18px;">${restaurantSettings.name}</h2>
+          <p style="margin: 5px 0; font-size: 11px;">${restaurantSettings.address}</p>
+          <p style="margin: 2px 0; font-size: 11px;">GST: ${restaurantSettings.gstin}</p>
+          <p style="margin: 2px 0; font-size: 11px;">Tel: ${restaurantSettings.phone}</p>
+        </div>
+        <div style="margin-bottom: 10px;"><p><strong>Bill No:</strong> ${billNumber}</p><p><strong>Date:</strong> ${date}</p></div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+          <thead><tr style="border-bottom: 1px solid #ccc;"><th>Item</th><th>Qty</th><th class="text-right">Price</th><th class="text-right">Total</th></tr></thead>
+          <tbody>${currentOrder.map(item => `<tr><td>${item.name} <span class="veg-dot ${item.veg ? 'green' : 'red'}" style="display: inline-block;"></span></td><td style="text-align: center;">${item.quantity}</td><td class="text-right">${formatCurrency(item.price)}</td><td class="text-right">${formatCurrency(item.price * item.quantity)}</td></tr>`).join('')}</tbody>
+        </table>
+        <div style="border-top: 1px solid #ccc; padding-top: 10px;">
+          <div style="display: flex; justify-content: space-between;"><span>Subtotal:</span><span>${formatCurrency(taxDetails.subtotal)}</span></div>
+          <div style="display: flex; justify-content: space-between;"><span>CGST (${restaurantSettings.cgstRate}%):</span><span>${formatCurrency(taxDetails.cgst)}</span></div>
+          <div style="display: flex; justify-content: space-between;"><span>SGST (${restaurantSettings.sgstRate}%):</span><span>${formatCurrency(taxDetails.sgst)}</span></div>
+          ${taxDetails.roundOff !== 0 ? `<div style="display: flex; justify-content: space-between;"><span>Round Off:</span><span>${taxDetails.roundOff > 0 ? '+' : ''}${formatCurrency(taxDetails.roundOff)}</span></div>` : ''}
+          <div style="display: flex; justify-content: space-between; font-weight: bold; margin-top: 10px; font-size: 16px; border-top: 1px solid #ccc; padding-top: 10px;"><span>TOTAL:</span><span>${formatCurrency(taxDetails.grandTotal)}</span></div>
+        </div>
+        <div style="text-align: center; margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px;">
+          <p>Thank you! Visit Again</p>
+          <p style="font-size: 10px;">** Digital Invoice **</p>
+        </div>
+      </div>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html><head><title>Receipt - ${billNumber}</title><style>body { font-family: monospace; }</style></head>
+      <body>${receiptHTML}<script>window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 1000); };<\/script></body>
+      </html>
+    `);
+    printWindow.document.close();
+    
+    currentOrder = [];
+    showToast(`Bill ${billNumber} generated!`, 'success');
+    render();
   }
-  
-  // ======================== AUTHENTICATION FUNCTIONS ========================
+
+  // ======================== AUTHENTICATION ========================
   async function loginUser(email, password) {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       currentUser = userCredential.user;
       isLoggedIn = true;
-      
       userRestaurantData = await getRestaurantProfile(currentUser.uid);
-      
-      localStorage.setItem('admin_logged', 'true');
-      localStorage.setItem('admin_email', email);
-      localStorage.setItem('restaurant_id', currentUser.uid);
-      
-      showNotification(`Welcome back, ${userRestaurantData?.name || email}!`, 'success');
-      
-      initializeDefaultMenuForRestaurant();
+      if (userRestaurantData) {
+        restaurantSettings.name = userRestaurantData.name || restaurantSettings.name;
+        restaurantSettings.address = userRestaurantData.address || restaurantSettings.address;
+        restaurantSettings.phone = userRestaurantData.phone || restaurantSettings.phone;
+        restaurantSettings.cgstRate = userRestaurantData.cgstRate || 2.5;
+        restaurantSettings.sgstRate = userRestaurantData.sgstRate || 2.5;
+        restaurantSettings.roundOff = userRestaurantData.roundOff !== false;
+      }
+      showToast(`Welcome back, ${restaurantSettings.name}!`, 'success');
       listenToMenu();
       listenToOrders();
-      
-      currentView = 'dashboard';
       render();
       return true;
-    } catch (error) {
-      console.error("Login error:", error);
-      let errorMessage = "Login failed";
-      if (error.code === 'auth/user-not-found') errorMessage = "User not found. Please register first.";
-      else if (error.code === 'auth/wrong-password') errorMessage = "Wrong password.";
-      else errorMessage = error.message;
-      showNotification(errorMessage, 'error');
-      return false;
-    }
+    } catch (error) { showToast(error.message, 'error'); return false; }
   }
-  
-  async function registerUser(email, password, name, restaurantNameInput, address, phone) {
+
+  async function registerUser(email, password, name, restaurantName, address, phone) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       currentUser = userCredential.user;
-      
       await updateProfile(currentUser, { displayName: name });
-      
-      userRestaurantData = await createRestaurantProfile(currentUser.uid, restaurantNameInput, address, phone);
-      
+      await createRestaurantProfile(currentUser.uid, restaurantName, address, phone);
       isLoggedIn = true;
-      localStorage.setItem('admin_logged', 'true');
-      localStorage.setItem('admin_email', email);
-      localStorage.setItem('restaurant_id', currentUser.uid);
-      
-      showNotification(`Welcome ${name}! Your restaurant "${restaurantNameInput}" is ready.`, 'success');
-      
-      await initializeDefaultMenuForRestaurant();
+      restaurantSettings.name = restaurantName;
+      restaurantSettings.address = address;
+      restaurantSettings.phone = phone;
+      showToast(`Welcome ${name}! Your restaurant is ready.`, 'success');
       listenToMenu();
       listenToOrders();
-      
-      currentView = 'dashboard';
       render();
       return true;
-    } catch (error) {
-      console.error("Registration error:", error);
-      let errorMessage = "Registration failed";
-      if (error.code === 'auth/email-already-in-use') errorMessage = "Email already in use.";
-      else if (error.code === 'auth/weak-password') errorMessage = "Password should be at least 6 characters.";
-      else errorMessage = error.message;
-      showNotification(errorMessage, 'error');
-      return false;
-    }
+    } catch (error) { showToast(error.message, 'error'); return false; }
   }
-  
+
   async function logoutUser() {
-    try {
-      await signOut(auth);
-      currentUser = null;
-      userRestaurantData = null;
-      isLoggedIn = false;
-      menuItems = [];
-      orders = [];
-      localStorage.removeItem('admin_logged');
-      localStorage.removeItem('admin_email');
-      localStorage.removeItem('restaurant_id');
-      showNotification('Logged out successfully', 'info');
-      render();
-    } catch (error) {
-      console.error("Logout error:", error);
-      showNotification("Error logging out", 'error');
-    }
+    try { await signOut(auth); currentUser = null; isLoggedIn = false; menuItems = []; orders = []; currentOrder = []; showToast('Logged out', 'info'); render(); } 
+    catch (error) { showToast("Error logging out", 'error'); }
   }
-  
+
   function checkAuthState() {
     onAuthStateChanged(auth, async (user) => {
       if (user) {
         currentUser = user;
         isLoggedIn = true;
         userRestaurantData = await getRestaurantProfile(currentUser.uid);
-        localStorage.setItem('admin_logged', 'true');
-        localStorage.setItem('admin_email', user.email);
-        localStorage.setItem('restaurant_id', user.uid);
-        
-        initializeDefaultMenuForRestaurant();
+        if (userRestaurantData) {
+          restaurantSettings.name = userRestaurantData.name || restaurantSettings.name;
+          restaurantSettings.address = userRestaurantData.address || restaurantSettings.address;
+          restaurantSettings.phone = userRestaurantData.phone || restaurantSettings.phone;
+        }
         listenToMenu();
         listenToOrders();
-        currentView = 'dashboard';
         render();
-      } else {
-        currentUser = null;
-        userRestaurantData = null;
-        isLoggedIn = false;
-        render();
-      }
+      } else { isLoggedIn = false; render(); }
     });
   }
-  
-  // ======================== STATISTICS ========================
-  function getStats() {
-    const totalOrders = orders.length;
-    const pendingOrders = orders.filter(o => o.status === 'Pending').length;
-    const preparingOrders = orders.filter(o => o.status === 'Preparing').length;
-    const servedOrders = orders.filter(o => o.status === 'Served').length;
-    const totalRevenue = orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-    const availableItems = menuItems.filter(i => i.available).length;
-    const unavailableItems = menuItems.filter(i => !i.available).length;
-    
-    return { totalOrders, pendingOrders, preparingOrders, servedOrders, totalRevenue, availableItems, unavailableItems };
-  }
-  
-  function calculateTax(subtotal) {
-    let cgst = (subtotal * TAX_CONFIG.cgst.rate) / 100;
-    let sgst = (subtotal * TAX_CONFIG.sgst.rate) / 100;
-    let serviceCharge = (subtotal * TAX_CONFIG.serviceCharge.rate) / 100;
-    let totalTax = cgst + sgst + serviceCharge;
-    let grandTotal = subtotal + totalTax;
-    let roundOff = 0;
-    
-    if (TAX_CONFIG.roundOff) {
-      const rounded = Math.round(grandTotal);
-      roundOff = rounded - grandTotal;
-      grandTotal = rounded;
+
+  async function saveSettings() {
+    if (userRestaurantData?.id) {
+      try {
+        await updateDoc(doc(db, "restaurants", userRestaurantData.id), {
+          name: restaurantSettings.name,
+          address: restaurantSettings.address,
+          phone: restaurantSettings.phone,
+          gstin: restaurantSettings.gstin,
+          cgstRate: restaurantSettings.cgstRate,
+          sgstRate: restaurantSettings.sgstRate,
+          roundOff: restaurantSettings.roundOff,
+          updatedAt: serverTimestamp()
+        });
+        showToast('Settings saved to database!', 'success');
+      } catch (error) { showToast('Error saving settings', 'error'); }
     }
-    
-    return { subtotal, cgst, sgst, serviceCharge, totalTax, roundOff, grandTotal };
+    render();
   }
-  
-  // ======================== UI FUNCTIONS ========================
-  function handleFileSelect(event) {
-    const file = event.target.files[0];
-    if (file) {
-      selectedFile = file;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        imagePreviewUrl = e.target.result;
-        const preview = document.getElementById('filePreview');
-        if (preview) {
-          preview.src = imagePreviewUrl;
-          preview.classList.remove('hidden');
-        }
-        const fileInfo = document.getElementById('fileInfo');
-        if (fileInfo) {
-          fileInfo.innerHTML = `<i class="fas fa-check-circle text-green-500"></i> ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
-          fileInfo.classList.remove('hidden');
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  }
-  
+
   // ======================== RENDER FUNCTIONS ========================
   function renderLogin() {
     return `
       <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100 p-4">
         <div class="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
           <div class="text-center mb-6">
-            <div class="inline-block bg-orange-100 rounded-full p-4 mb-4">
-              <i class="fas fa-utensils text-5xl text-orange-600"></i>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-800">Multi-Restaurant Admin</h2>
-            <p class="text-gray-500 text-sm mt-1">Each restaurant has its own private data</p>
+            <div class="inline-block bg-orange-100 rounded-full p-4 mb-4"><i class="fas fa-utensils text-5xl text-orange-600"></i></div>
+            <h2 class="text-2xl font-bold">RestoPOS</h2>
+            <p class="text-gray-500 text-sm">Professional Restaurant Management</p>
           </div>
-          
-          <div id="loginForm">
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" id="loginEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="restaurant@email.com">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" id="loginPassword" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="••••••••">
-              </div>
-              <button id="loginBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
-                <i class="fas fa-sign-in-alt mr-2"></i> Login
-              </button>
-              <p class="text-center text-sm text-gray-500">
-                New restaurant? 
-                <button id="showRegisterBtn" class="text-orange-600 hover:underline">Register your restaurant</button>
-              </p>
-            </div>
-          </div>
-          
-          <div id="registerForm" class="hidden">
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Restaurant Name *</label>
-                <input type="text" id="restaurantName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="My Restaurant">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Owner Name *</label>
-                <input type="text" id="ownerName" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="John Doe">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                <input type="email" id="registerEmail" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="restaurant@email.com">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                <input type="password" id="registerPassword" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="Min 6 characters">
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                <textarea id="restaurantAddress" rows="2" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="Restaurant address"></textarea>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" id="restaurantPhone" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500" placeholder="+91 98765 43210">
-              </div>
-              <button id="registerBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold hover:bg-orange-700 transition">
-                <i class="fas fa-user-plus mr-2"></i> Register Restaurant
-              </button>
-              <p class="text-center text-sm text-gray-500">
-                Already registered? 
-                <button id="showLoginBtn" class="text-orange-600 hover:underline">Login here</button>
-              </p>
-            </div>
-          </div>
+          <div id="loginForm"><div class="space-y-4"><input type="email" id="loginEmail" placeholder="Email" class="w-full border rounded-lg px-4 py-3"><input type="password" id="loginPassword" placeholder="Password" class="w-full border rounded-lg px-4 py-3"><button id="loginBtn" class="w-full bg-orange-600 text-white py-3 rounded-lg font-semibold">Login</button><p class="text-center text-sm">New restaurant? <button id="showRegisterBtn" class="text-orange-600">Register</button></p></div></div>
+          <div id="registerForm" class="hidden"><div class="space-y-4"><input type="text" id="regRestaurantName" placeholder="Restaurant Name" class="w-full border rounded-lg px-4 py-3"><input type="text" id="regOwnerName" placeholder="Owner Name" class="w-full border rounded-lg px-4 py-3"><input type="email" id="regEmail" placeholder="Email" class="w-full border rounded-lg px-4 py-3"><input type="password" id="regPassword" placeholder="Password" class="w-full border rounded-lg px-4 py-3"><textarea id="regAddress" rows="2" placeholder="Address" class="w-full border rounded-lg px-4 py-3"></textarea><input type="tel" id="regPhone" placeholder="Phone" class="w-full border rounded-lg px-4 py-3"><button id="registerBtn" class="w-full bg-orange-600 text-white py-3 rounded-lg font-semibold">Register</button><p class="text-center text-sm">Already registered? <button id="showLoginBtn" class="text-orange-600">Login</button></p></div></div>
         </div>
       </div>
     `;
   }
-  
+
+  function renderSidebar() {
+    const items = [
+      { id: 'pos', icon: 'fa-cash-register', label: 'POS / Billing' },
+      { id: 'dashboard', icon: 'fa-chart-line', label: 'Dashboard' },
+      { id: 'menu', icon: 'fa-utensils', label: 'Menu Management' },
+      { id: 'analytics', icon: 'fa-chart-bar', label: 'Analytics' },
+      { id: 'settings', icon: 'fa-cog', label: 'Settings' }
+    ];
+    return `<div class="fixed left-0 top-0 h-full w-64 bg-white shadow-xl z-20"><div class="p-6 border-b"><h1 class="font-bold text-2xl">Resto<span class="text-orange-500">POS</span></h1><p class="text-xs text-gray-500">Premium Dashboard</p></div><nav class="p-4 space-y-1">${items.map(item => `<div onclick="window.setSection('${item.id}')" class="sidebar-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium ${currentSection === item.id ? 'active' : ''}"><i class="fas ${item.icon} w-5"></i><span>${item.label}</span></div>`).join('')}</nav><div class="absolute bottom-6 left-0 right-0 px-4"><div class="bg-gray-50 rounded-xl p-3 text-center"><i class="fas fa-user-circle text-orange-500 text-2xl mb-1"></i><p class="text-xs font-medium">${currentUser?.displayName || 'Staff'}</p><p class="text-xs text-gray-400">Restaurant Admin</p></div></div></div>`;
+  }
+
+  function renderTopBar() {
+    const currentTime = new Date().toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+    return `<div class="flex justify-between items-center px-8 py-4 bg-white shadow-sm sticky top-0 z-10"><div><h2 class="text-xl font-bold capitalize">${currentSection === 'pos' ? 'POS / Billing' : currentSection}</h2></div><div class="flex items-center gap-6"><div class="text-right"><p class="text-sm font-medium">${restaurantSettings.name}</p><p class="text-xs text-gray-500">${currentTime}</p></div><button onclick="window.logout()" class="text-red-500 hover:text-red-600"><i class="fas fa-sign-out-alt"></i></button></div></div>`;
+  }
+
+  function renderPOS() {
+    const taxDetails = calculateGST(getSubtotal());
+    return `<div class="flex flex-col lg:flex-row h-full"><div class="flex-1 p-6"><div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">${menuItems.filter(i => i.available).map(item => `<div onclick="window.addToOrder(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="pos-item bg-white rounded-xl p-4 text-center shadow-sm hover:shadow-md transition"><img src="${item.image}" class="w-16 h-16 mx-auto rounded-lg object-cover mb-2"><div class="flex items-center justify-center gap-1"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><span class="font-semibold text-sm">${item.name}</span></div><p class="text-orange-600 font-bold mt-1">${formatCurrency(item.price)}</p></div>`).join('')}</div></div><div class="w-full lg:w-96 bg-white border-l border-gray-200 p-6"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">Current Order</h3><span class="text-xs text-gray-500">${currentOrder.length} items</span></div><div class="space-y-3 max-h-96 overflow-y-auto mb-4">${currentOrder.length === 0 ? '<div class="text-center py-8 text-gray-400"><i class="fas fa-shopping-cart text-4xl mb-2"></i><p>No items added</p></div>' : currentOrder.map(item => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><div class="flex-1"><p class="font-medium">${item.name}</p><p class="text-sm text-gray-500">${formatCurrency(item.price)}</p></div><div class="flex items-center gap-2"><button onclick="window.updateOrderQty(${item.id}, -1)" class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300">-</button><span class="w-8 text-center font-semibold">${item.quantity}</span><button onclick="window.updateOrderQty(${item.id}, 1)" class="w-8 h-8 rounded-full bg-orange-100 hover:bg-orange-200">+</button><button onclick="window.removeFromOrder(${item.id})" class="ml-2 text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></div></div>`).join('')}</div><div class="border-t pt-4 space-y-2"><div class="flex justify-between"><span>Subtotal</span><span>${formatCurrency(taxDetails.subtotal)}</span></div><div class="flex justify-between"><span>CGST (${restaurantSettings.cgstRate}%)</span><span>${formatCurrency(taxDetails.cgst)}</span></div><div class="flex justify-between"><span>SGST (${restaurantSettings.sgstRate}%)</span><span>${formatCurrency(taxDetails.sgst)}</span></div>${taxDetails.roundOff !== 0 ? `<div class="flex justify-between"><span>Round Off</span><span>${taxDetails.roundOff > 0 ? '+' : ''}${formatCurrency(taxDetails.roundOff)}</span></div>` : ''}<div class="flex justify-between font-bold text-lg pt-2 border-t"><span>Total</span><span class="text-orange-600">${formatCurrency(taxDetails.grandTotal)}</span></div><button onclick="window.generateReceipt()" class="w-full bg-orange-600 text-white py-3 rounded-lg font-bold mt-4 hover:bg-orange-700 transition" ${currentOrder.length === 0 ? 'disabled' : ''}>Generate Bill & Print</button></div></div></div>`;
+  }
+
   function renderDashboard() {
-    const stats = getStats();
-    const recentOrders = orders.slice(0, 5);
-    
-    return `
-      <div class="p-6">
-        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
-          <div>
-            <h1 class="text-2xl font-bold text-gray-800">${userRestaurantData?.name || 'Restaurant'} Dashboard</h1>
-            <p class="text-gray-500 text-sm mt-1">Welcome, ${currentUser?.displayName || currentUser?.email} • Private Data</p>
-          </div>
-          <div class="flex gap-3">
-            <div class="bg-orange-100 rounded-lg px-3 py-2 flex items-center gap-2">
-              <i class="fas fa-store text-orange-600"></i>
-              <span class="text-sm text-orange-700">${userRestaurantData?.name || 'Your Restaurant'}</span>
-            </div>
-            <button id="taxSettingsBtn" class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition">
-              <i class="fas fa-percent mr-2"></i> Tax
-            </button>
-            <button id="logoutBtn" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition">
-              <i class="fas fa-sign-out-alt mr-2"></i> Logout
-            </button>
-          </div>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Total Orders</p><p class="text-3xl font-bold">${stats.totalOrders}</p></div><i class="fas fa-receipt text-4xl text-orange-300"></i></div></div>
-          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Pending</p><p class="text-3xl font-bold text-yellow-600">${stats.pendingOrders}</p></div><i class="fas fa-clock text-4xl text-yellow-300"></i></div></div>
-          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Revenue</p><p class="text-3xl font-bold text-green-600">${formatCurrency(stats.totalRevenue)}</p></div><i class="fas fa-rupee-sign text-4xl text-green-300"></i></div></div>
-          <div class="bg-white rounded-xl shadow-sm p-5"><div class="flex justify-between"><div><p class="text-gray-500">Menu Items</p><p class="text-3xl font-bold">${stats.availableItems}/${stats.availableItems+stats.unavailableItems}</p></div><i class="fas fa-utensils text-4xl text-orange-300"></i></div></div>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div class="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToMenuBtn">
-            <h3 class="text-xl font-bold mb-2">🍽️ My Menu</h3>
-            <p class="text-orange-100 text-sm mb-4">Manage your restaurant's menu items</p>
-            <div class="inline-block bg-white text-orange-600 px-4 py-2 rounded-lg font-semibold"><i class="fas fa-edit mr-2"></i> Manage Menu</div>
-          </div>
-          <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl p-6 text-white cursor-pointer hover:shadow-xl transition" id="goToOrdersBtn">
-            <h3 class="text-xl font-bold mb-2">📦 My Orders</h3>
-            <p class="text-blue-100 text-sm mb-4">Track orders for your restaurant</p>
-            <div class="inline-block bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold"><i class="fas fa-truck-fast mr-2"></i> View Orders</div>
-          </div>
-        </div>
-        
-        <div class="bg-white rounded-xl shadow-sm p-6">
-          <h2 class="font-bold mb-4">📋 Recent Orders</h2>
-          ${recentOrders.length === 0 ? '<div class="text-center py-8"><i class="fas fa-shopping-bag text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders yet for your restaurant</p></div>' : `
-            <div class="space-y-3 max-h-96 overflow-y-auto">
-              ${recentOrders.map(order => `
-                <div class="order-row border rounded-lg p-4 flex flex-wrap justify-between items-center gap-3">
-                  <div><p class="font-semibold">#${order.id.slice(-8)}</p><p class="text-sm text-gray-500">Table ${order.tableNumber}</p></div>
-                  <div><p>${order.items?.length || 0} items</p><p class="text-orange-600 font-bold">${formatCurrency(order.totalPrice)}</p></div>
-                  <div><span class="px-3 py-1 rounded-full text-xs ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : order.status === 'Preparing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}">${order.status}</span></div>
-                  <div class="flex gap-2">
-                    ${order.status === 'Pending' ? `<button class="acceptOrderBtn bg-green-500 text-white px-3 py-1 rounded text-xs" data-id="${order.id}">Accept</button>` : ''}
-                    ${order.status === 'Preparing' ? `<button class="serveOrderBtn bg-purple-500 text-white px-3 py-1 rounded text-xs" data-id="${order.id}">Serve</button>` : ''}
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          `}
-        </div>
-      </div>
-    `;
+    const totalRevenue = salesData.reduce((sum, s) => sum + s.amount, 0);
+    const totalOrders = salesData.length;
+    return `<div class="p-8"><div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8"><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center"><i class="fas fa-rupee-sign text-green-600 text-xl"></i></div><div><p class="text-gray-500">Total Revenue</p><p class="text-2xl font-bold">${formatCurrency(totalRevenue)}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center"><i class="fas fa-receipt text-blue-600 text-xl"></i></div><div><p class="text-gray-500">Total Orders</p><p class="text-2xl font-bold">${totalOrders}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center"><i class="fas fa-utensils text-orange-600 text-xl"></i></div><div><p class="text-gray-500">Menu Items</p><p class="text-2xl font-bold">${menuItems.length}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center"><i class="fas fa-clock text-purple-600 text-xl"></i></div><div><p class="text-gray-500">Active Items</p><p class="text-2xl font-bold">${menuItems.filter(i => i.available).length}</p></div></div></div></div><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Recent Orders</h3>${orders.slice(0,5).map(o => `<div class="flex justify-between items-center py-2 border-b"><div>Bill #${o.billNumber}</div><div>${formatCurrency(o.totalPrice)}</div><span class="text-xs text-gray-500">${new Date(o.timestamp).toLocaleDateString()}</span></div>`).join('')}</div></div>`;
   }
-  
+
   function renderMenuManagement() {
-    if (isLoading) {
-      return `<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4">Loading your menu...</p></div></div>`;
-    }
-    
-    const stats = getStats();
-    
-    return `
-      <div class="p-6">
-        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 flex flex-wrap justify-between items-center gap-4">
-          <div><button id="backToDashboard" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">My Menu</h1><p class="text-gray-500 text-sm mt-1">${stats.availableItems} available • ${stats.unavailableItems} unavailable • ${userRestaurantData?.name || 'Your Restaurant'}</p></div>
-          <button id="addItemBtn" class="bg-orange-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-orange-700"><i class="fas fa-plus mr-2"></i> Add New Item</button>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          ${menuItems.map(item => `
-            <div class="bg-white rounded-xl shadow-sm overflow-hidden menu-card">
-              <div class="relative h-48 bg-gray-100">
-                <img src="${item.image}" class="menu-image" onerror="this.src='https://placehold.co/400x200/e2e8f0/475569?text=No+Image'">
-                <div class="absolute top-2 right-2"><span class="px-2 py-1 rounded-full text-xs font-semibold ${item.available ? 'badge-available' : 'badge-unavailable'}">${item.available ? 'Available' : 'Unavailable'}</span></div>
-              </div>
-              <div class="p-4">
-                <div class="flex justify-between items-start mb-2">
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>
-                      <h3 class="font-bold text-lg">${escapeHtml(item.name)}</h3>
-                    </div>
-                    <p class="text-xs text-gray-500">${item.category}</p>
-                  </div>
-                  <p class="text-orange-600 font-bold text-xl">${formatCurrency(item.price)}</p>
-                </div>
-                <p class="text-gray-500 text-sm mb-4">${escapeHtml(item.description || 'No description')}</p>
-                <div class="flex gap-2">
-                  <button class="editItemBtn flex-1 bg-gray-100 text-gray-700 px-3 py-2 rounded-lg text-sm hover:bg-gray-200" data-id="${item.id}"><i class="fas fa-edit mr-1"></i> Edit</button>
-                  <button class="toggleAvailBtn flex-1 ${item.available ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'} px-3 py-2 rounded-lg text-sm" data-id="${item.id}" data-available="${item.available}"><i class="fas ${item.available ? 'fa-ban' : 'fa-check'} mr-1"></i> ${item.available ? 'Block' : 'Unblock'}</button>
-                  <button class="deleteItemBtn bg-red-100 text-red-600 px-3 py-2 rounded-lg text-sm" data-id="${item.id}" data-name="${escapeHtml(item.name)}"><i class="fas fa-trash"></i></button>
-                </div>
-                <div class="mt-2 text-xs">
-                  <span class="${item.veg ? 'veg-badge' : 'nonveg-badge'} px-2 py-0.5 rounded-full">${item.veg ? 'Vegetarian' : 'Non-Vegetarian'}</span>
-                </div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        ${menuItems.length === 0 ? '<div class="text-center py-12 bg-white rounded-xl mt-5"><i class="fas fa-utensils text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No menu items yet. Click "Add New Item" to get started!</p></div>' : ''}
-      </div>
-    `;
+    if (isLoading) return `<div class="flex items-center justify-center h-64"><div class="loading-spinner mx-auto"></div></div>`;
+    return `<div class="p-8"><div class="flex justify-between items-center mb-6"><h3 class="text-xl font-bold">Menu Management</h3><button onclick="window.openAddItemModal()" class="bg-orange-600 text-white px-4 py-2 rounded-lg"><i class="fas fa-plus"></i> Add Item</button></div><div class="bg-white rounded-xl overflow-x-auto"><table class="w-full"><thead class="bg-gray-50"><tr><th class="p-3">Image</th><th class="p-3">Name</th><th class="p-3">Category</th><th class="p-3">Price</th><th class="p-3">Type</th><th class="p-3">Status</th><th class="p-3">Actions</th></tr></thead><tbody>${menuItems.map(item => `<tr class="border-b"><td class="p-3"><img src="${item.image}" class="w-12 h-12 rounded-lg object-cover"></td><td class="p-3 font-medium">${item.name}${item.popular ? ' 🔥' : ''}</td><td class="p-3">${item.category}</td><td class="p-3 font-bold text-orange-600">${formatCurrency(item.price)}</td><td class="p-3"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>${item.veg ? 'Veg' : 'Non-Veg'}</td><td class="p-3"><button onclick="window.toggleAvail('${item.id}', ${item.available})" class="px-3 py-1 rounded-full text-xs ${item.available ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${item.available ? 'Available' : 'Out of Stock'}</button></td><td class="p-3"><button onclick="window.editItem('${item.id}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button><button onclick="window.deleteItem('${item.id}', '${item.name}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody>}</table></div></div>`;
   }
-  
-  function renderOrdersManagement() {
-    const pending = orders.filter(o => o.status === 'Pending');
-    const preparing = orders.filter(o => o.status === 'Preparing');
-    const completed = orders.filter(o => o.status === 'Served');
-    let ordersToShow = currentTab === 'pending' ? pending : currentTab === 'preparing' ? preparing : completed;
-    
-    return `
-      <div class="p-6">
-        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6"><button id="backToDashboardOrders" class="text-gray-600 hover:text-orange-600 mr-4"><i class="fas fa-arrow-left"></i> Back</button><h1 class="text-2xl font-bold inline-block">My Orders</h1><p class="text-gray-500 text-sm mt-1">Orders for ${userRestaurantData?.name || 'your restaurant'}</p></div>
-        <div class="flex gap-2 mb-6 border-b">
-          <button class="order-tab px-5 py-2 font-medium ${currentTab === 'pending' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="pending">Pending (${pending.length})</button>
-          <button class="order-tab px-5 py-2 font-medium ${currentTab === 'preparing' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="preparing">Preparing (${preparing.length})</button>
-          <button class="order-tab px-5 py-2 font-medium ${currentTab === 'completed' ? 'text-orange-600 border-b-2 border-orange-600' : 'text-gray-500'}" data-tab="completed">Completed (${completed.length})</button>
-        </div>
-        <div class="space-y-4">
-          ${ordersToShow.length === 0 ? '<div class="bg-white rounded-xl p-12 text-center"><i class="fas fa-inbox text-5xl text-gray-300 mb-3"></i><p class="text-gray-500">No orders for your restaurant</p></div>' : ordersToShow.map(order => `
-            <div class="bg-white rounded-xl shadow-sm p-5 order-row">
-              <div class="flex justify-between items-start mb-4">
-                <div><h3 class="font-bold">Order #${order.id.slice(-8)}</h3><p class="text-sm text-gray-500">Table ${order.tableNumber} • ${new Date(order.timestamp).toLocaleString()}</p></div>
-                <div class="text-right"><p class="text-2xl font-bold text-orange-600">${formatCurrency(order.totalPrice)}</p><span class="px-3 py-1 rounded-full text-xs ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : order.status === 'Preparing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}">${order.status}</span></div>
-              </div>
-              <div class="border-t pt-3 mb-3"><p class="font-medium mb-2">Items:</p>${order.items.map(item => `
-                <div class="flex justify-between text-sm items-center">
-                  <div class="flex items-center gap-2">
-                    <span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>
-                    <span>${escapeHtml(item.name)} x${item.quantity}</span>
-                  </div>
-                  <span>${formatCurrency(item.price * item.quantity)}</span>
-                </div>
-              `).join('')}</div>
-              <div class="flex gap-2">
-                ${order.status === 'Pending' ? `<button class="acceptOrderBtn bg-green-500 text-white px-4 py-2 rounded-lg text-sm" data-id="${order.id}"><i class="fas fa-check mr-1"></i> Accept & Prepare</button>` : ''}
-                ${order.status === 'Preparing' ? `<button class="serveOrderBtn bg-purple-500 text-white px-4 py-2 rounded-lg text-sm" data-id="${order.id}"><i class="fas fa-check-double mr-1"></i> Mark as Served</button>` : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
+
+  function renderAnalytics() {
+    const totalRevenue = salesData.reduce((sum, s) => sum + s.amount, 0);
+    const avgOrder = salesData.length ? totalRevenue / salesData.length : 0;
+    setTimeout(() => {
+      const revCtx = document.getElementById('revenueChart')?.getContext('2d');
+      if (revCtx) new Chart(revCtx, { type: 'bar', data: { labels: salesData.slice(-7).map((_,i) => `Day ${i+1}`), datasets: [{ label: 'Revenue', data: salesData.slice(-7).map(s => s.amount), backgroundColor: '#f97316' }] }, options: { responsive: true } });
+    }, 100);
+    return `<div class="p-8"><div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Revenue Chart</h3><canvas id="revenueChart" height="200"></canvas></div><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Key Metrics</h3><div class="space-y-4"><div><p class="text-gray-500">Total Revenue</p><p class="text-2xl font-bold text-green-600">${formatCurrency(totalRevenue)}</p></div><div><p class="text-gray-500">Average Order Value</p><p class="text-2xl font-bold text-orange-600">${formatCurrency(avgOrder)}</p></div><div><p class="text-gray-500">Tax Configuration</p><div class="mt-2 text-sm"><p>CGST: ${restaurantSettings.cgstRate}% | SGST: ${restaurantSettings.sgstRate}%</p><p>Round Off: ${restaurantSettings.roundOff ? 'Enabled' : 'Disabled'}</p></div></div></div></div></div></div>`;
   }
-  
-  function renderTaxModal() {
-    if (!showTaxModal) return '';
-    return `
-      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="taxModalOverlay">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6">
-          <div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold"><i class="fas fa-percent text-orange-600 mr-2"></i> Tax Settings</h2><button id="closeTaxModal" class="text-gray-400 text-2xl">&times;</button></div>
-          <div class="space-y-4">
-            <div class="border-b pb-3"><h3 class="font-semibold mb-2">GST Settings</h3>
-              <label class="flex justify-between py-2"><span>CGST (2.5%)</span><input type="checkbox" id="cgstEnabled" ${TAX_CONFIG.cgst.enabled ? 'checked' : ''}></label>
-              <label class="flex justify-between py-2"><span>SGST (2.5%)</span><input type="checkbox" id="sgstEnabled" ${TAX_CONFIG.sgst.enabled ? 'checked' : ''}></label>
-            </div>
-            <div class="border-b pb-3"><h3 class="font-semibold mb-2">Additional Charges</h3>
-              <label class="flex justify-between py-2"><span>Service Charge (5%)</span><input type="checkbox" id="serviceChargeEnabled" ${TAX_CONFIG.serviceCharge.enabled ? 'checked' : ''}></label>
-            </div>
-            <div><label class="flex justify-between py-2"><span>Round Off to Nearest Rupee</span><input type="checkbox" id="roundOffEnabled" ${TAX_CONFIG.roundOff ? 'checked' : ''}></label></div>
-          </div>
-          <div class="flex gap-3 mt-6"><button id="saveTaxBtn" class="flex-1 bg-orange-600 text-white py-2 rounded-lg font-semibold">Save Settings</button><button id="cancelTaxBtn" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div>
-        </div>
-      </div>
-    `;
+
+  function renderSettings() {
+    return `<div class="p-8"><div class="bg-white rounded-xl shadow-sm p-6 max-w-2xl"><h3 class="font-bold text-xl mb-6">Restaurant Settings</h3><div class="space-y-4"><div><label class="block text-sm font-medium mb-1">Restaurant Name</label><input type="text" id="restoName" value="${restaurantSettings.name}" class="w-full border rounded-lg px-3 py-2"></div><div><label class="block text-sm font-medium mb-1">Address</label><textarea id="restoAddress" rows="2" class="w-full border rounded-lg px-3 py-2">${restaurantSettings.address}</textarea></div><div><label class="block text-sm font-medium mb-1">Phone</label><input type="text" id="restoPhone" value="${restaurantSettings.phone}" class="w-full border rounded-lg px-3 py-2"></div><div><label class="block text-sm font-medium mb-1">GST Number</label><input type="text" id="restoGST" value="${restaurantSettings.gstin}" class="w-full border rounded-lg px-3 py-2"></div><div class="grid grid-cols-2 gap-3"><div><label class="block text-sm font-medium mb-1">CGST Rate (%)</label><input type="number" id="cgstRate" value="${restaurantSettings.cgstRate}" step="0.1" class="w-full border rounded-lg px-3 py-2"></div><div><label class="block text-sm font-medium mb-1">SGST Rate (%)</label><input type="number" id="sgstRate" value="${restaurantSettings.sgstRate}" step="0.1" class="w-full border rounded-lg px-3 py-2"></div></div><label class="flex items-center justify-between py-2"><span class="text-sm font-medium">Round Off to Nearest Rupee</span><input type="checkbox" id="roundOff" ${restaurantSettings.roundOff ? 'checked' : ''}></label><button onclick="window.saveSettings()" class="bg-orange-600 text-white px-6 py-2 rounded-lg font-medium">Save Changes</button></div></div></div>`;
   }
-  
-  function renderAddEditModal() {
-    if (!showModal) return '';
-    const isEditing = editingItem !== null;
-    const item = editingItem || {};
-    
-    return `
-      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" id="modalOverlay">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-          <div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold">${isEditing ? '✏️ Edit Item' : '➕ Add New Item'}</h2><button id="closeModalBtn" class="text-gray-400 text-2xl">&times;</button></div>
-          <div class="space-y-4">
-            <div><label class="block text-sm font-medium mb-1">Item Name *</label><input type="text" id="itemName" class="w-full border rounded-lg px-3 py-2" placeholder="Butter Chicken" value="${escapeHtml(item.name || '')}"></div>
-            <div><label class="block text-sm font-medium mb-1">Price (₹) *</label><input type="number" id="itemPrice" class="w-full border rounded-lg px-3 py-2" placeholder="299" value="${item.price || ''}"></div>
-            <div><label class="block text-sm font-medium mb-1">Category</label><select id="itemCategory" class="w-full border rounded-lg px-3 py-2">${categories.map(c => `<option value="${c}" ${item.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-            <div><label class="block text-sm font-medium mb-1">Description</label><textarea id="itemDescription" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Brief description">${escapeHtml(item.description || '')}</textarea></div>
-            
-            <!-- Veg/Non-Veg Selection -->
-            <div>
-              <label class="block text-sm font-medium mb-2">Food Type *</label>
-              <div class="flex gap-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="foodType" value="veg" ${(item.veg !== undefined ? item.veg : selectedVegStatus) ? 'checked' : ''} class="w-4 h-4 text-green-600">
-                  <span class="veg-dot green"></span>
-                  <span class="font-medium">Vegetarian</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="foodType" value="nonveg" ${(item.veg !== undefined ? !item.veg : !selectedVegStatus) ? 'checked' : ''} class="w-4 h-4 text-red-600">
-                  <span class="veg-dot red"></span>
-                  <span class="font-medium">Non-Vegetarian</span>
-                </label>
-              </div>
-            </div>
-            
-            <div><label class="block text-sm font-medium mb-1">Upload Image</label><input type="file" id="itemFile" accept="image/*" class="w-full border rounded-lg px-3 py-2"><div class="mt-2"><img id="filePreview" src="${item.image || ''}" class="image-preview ${item.image ? '' : 'hidden'}" onerror="this.src='https://placehold.co/120x120/e2e8f0/475569?text=No+Image'"><div id="fileInfo" class="text-xs text-gray-500 mt-1 ${!item.image ? 'hidden' : ''}"></div></div>${isCompressing ? `<div class="mt-2"><div class="bg-gray-200 rounded-full h-2"><div class="bg-orange-600 h-2 rounded-full compress-progress" style="width: ${compressProgress}%"></div></div><p class="text-xs text-gray-500 mt-1">Compressing: ${compressProgress}%</p></div>` : ''}<p class="text-xs text-gray-400 mt-2"><i class="fas fa-info-circle"></i> Images compressed to under 400KB</p></div>
-          </div>
-          <div class="flex gap-3 mt-6"><button id="saveItemBtn" class="flex-1 bg-orange-600 text-white py-2 rounded-lg font-semibold" ${isCompressing ? 'disabled' : ''}><i class="fas fa-save mr-2"></i> ${isEditing ? 'Update Item' : 'Add Item'}</button><button id="cancelModalBtn" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div>
-        </div>
-      </div>
-    `;
+
+  function renderAddItemModal() {
+    if (!showAddItemModal) return '';
+    return `<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"><div class="bg-white rounded-2xl max-w-md w-full p-6"><h2 class="text-xl font-bold mb-4">${editingItem ? '✏️ Edit Item' : '➕ Add New Item'}</h2><div class="space-y-3"><input type="text" id="itemName" placeholder="Item Name" class="w-full border rounded-lg px-3 py-2" value="${editingItem?.name || ''}"><input type="number" id="itemPrice" placeholder="Price" class="w-full border rounded-lg px-3 py-2" value="${editingItem?.price || ''}"><select id="itemCategory" class="w-full border rounded-lg px-3 py-2"><option>Starters</option><option>Main Course</option><option>Breads</option><option>Beverages</option><option>Desserts</option></select><textarea id="itemDescription" rows="2" placeholder="Description" class="w-full border rounded-lg px-3 py-2">${editingItem?.description || ''}</textarea><div class="flex gap-4"><label><input type="radio" name="vegType" value="veg" ${editingItem?.veg !== false ? 'checked' : ''}> Veg</label><label><input type="radio" name="vegType" value="nonveg" ${editingItem?.veg === false ? 'checked' : ''}> Non-Veg</label></div><div class="upload-area p-4 text-center cursor-pointer" onclick="document.getElementById('imageUpload').click()"><i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i><p class="text-sm text-gray-500">Click to upload image</p><input type="file" id="imageUpload" accept="image/*" class="hidden" onchange="window.handleImageSelect(event)"></div><div id="imagePreviewContainer" class="text-center ${!imagePreviewUrl && !editingItem?.image ? 'hidden' : ''}"><img id="imagePreview" src="${imagePreviewUrl || editingItem?.image || ''}" class="image-preview mx-auto"><button type="button" onclick="window.clearImage()" class="text-red-500 text-xs mt-1">Remove</button></div></div><div class="flex gap-3 mt-6"><button onclick="window.saveMenuItem()" class="flex-1 bg-orange-600 text-white py-2 rounded-lg">${editingItem ? 'Update' : 'Add'}</button><button onclick="window.closeModal()" class="flex-1 bg-gray-100 py-2 rounded-lg">Cancel</button></div></div></div>`;
   }
-  
+
   function render() {
-    const root = document.getElementById('admin-root');
+    const root = document.getElementById('root');
     if (!root) return;
-    
-    if (!isLoggedIn) {
-      root.innerHTML = renderLogin();
-      attachLoginEvents();
-      return;
-    }
-    
-    let main = currentView === 'dashboard' ? renderDashboard() : currentView === 'menu' ? renderMenuManagement() : renderOrdersManagement();
-    root.innerHTML = main + renderAddEditModal() + renderTaxModal();
+    if (!isLoggedIn) { root.innerHTML = renderLogin(); attachLoginEvents(); return; }
+    let main = '';
+    if (currentSection === 'pos') main = renderPOS();
+    else if (currentSection === 'dashboard') main = renderDashboard();
+    else if (currentSection === 'menu') main = renderMenuManagement();
+    else if (currentSection === 'analytics') main = renderAnalytics();
+    else main = renderSettings();
+    root.innerHTML = `<div class="min-h-screen bg-gray-50"><div class="ml-64">${renderTopBar()}${main}</div>${renderSidebar()}${renderAddItemModal()}</div>${toast ? `<div class="toast ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'} text-white px-4 py-2 rounded-lg shadow-lg">${toast.message}</div>` : ''}`;
     attachEvents();
   }
-  
-  // ======================== EVENT HANDLERS ========================
+
   function attachLoginEvents() {
-    const loginBtn = document.getElementById('loginBtn');
-    const showRegisterBtn = document.getElementById('showRegisterBtn');
-    const showLoginBtn = document.getElementById('showLoginBtn');
-    const registerBtn = document.getElementById('registerBtn');
-    const loginForm = document.getElementById('loginForm');
-    const registerForm = document.getElementById('registerForm');
-    
-    if (loginBtn) {
-      loginBtn.addEventListener('click', () => {
-        const email = document.getElementById('loginEmail')?.value;
-        const password = document.getElementById('loginPassword')?.value;
-        if (email && password) {
-          loginUser(email, password);
-        } else {
-          showNotification('Please enter email and password', 'error');
-        }
-      });
-    }
-    
-    if (showRegisterBtn) {
-      showRegisterBtn.addEventListener('click', () => {
-        loginForm.classList.add('hidden');
-        registerForm.classList.remove('hidden');
-      });
-    }
-    
-    if (showLoginBtn) {
-      showLoginBtn.addEventListener('click', () => {
-        registerForm.classList.add('hidden');
-        loginForm.classList.remove('hidden');
-      });
-    }
-    
-    if (registerBtn) {
-      registerBtn.addEventListener('click', () => {
-        const restaurantName = document.getElementById('restaurantName')?.value;
-        const ownerName = document.getElementById('ownerName')?.value;
-        const email = document.getElementById('registerEmail')?.value;
-        const password = document.getElementById('registerPassword')?.value;
-        const address = document.getElementById('restaurantAddress')?.value;
-        const phone = document.getElementById('restaurantPhone')?.value;
-        
-        if (restaurantName && ownerName && email && password) {
-          registerUser(email, password, ownerName, restaurantName, address, phone);
-        } else {
-          showNotification('Please fill all required fields', 'error');
-        }
-      });
-    }
+    document.getElementById('loginBtn')?.addEventListener('click', () => { const email = document.getElementById('loginEmail')?.value; const pass = document.getElementById('loginPassword')?.value; if(email && pass) loginUser(email, pass); });
+    document.getElementById('showRegisterBtn')?.addEventListener('click', () => { document.getElementById('loginForm').classList.add('hidden'); document.getElementById('registerForm').classList.remove('hidden'); });
+    document.getElementById('showLoginBtn')?.addEventListener('click', () => { document.getElementById('registerForm').classList.add('hidden'); document.getElementById('loginForm').classList.remove('hidden'); });
+    document.getElementById('registerBtn')?.addEventListener('click', () => { const name = document.getElementById('regRestaurantName')?.value; const owner = document.getElementById('regOwnerName')?.value; const email = document.getElementById('regEmail')?.value; const pass = document.getElementById('regPassword')?.value; const addr = document.getElementById('regAddress')?.value; const phone = document.getElementById('regPhone')?.value; if(name && owner && email && pass) registerUser(email, pass, owner, name, addr, phone); });
   }
-  
+
   function attachEvents() {
-    document.getElementById('logoutBtn')?.addEventListener('click', () => { logoutUser(); });
-    document.getElementById('goToMenuBtn')?.addEventListener('click', () => { currentView = 'menu'; render(); });
-    document.getElementById('goToOrdersBtn')?.addEventListener('click', () => { currentView = 'orders'; currentTab = 'pending'; render(); });
-    document.getElementById('viewAllOrdersBtn')?.addEventListener('click', () => { currentView = 'orders'; currentTab = 'pending'; render(); });
-    document.getElementById('backToDashboard')?.addEventListener('click', () => { currentView = 'dashboard'; render(); });
-    document.getElementById('backToDashboardOrders')?.addEventListener('click', () => { currentView = 'dashboard'; render(); });
-    document.getElementById('addItemBtn')?.addEventListener('click', () => { 
-      editingItem = null; 
-      selectedFile = null; 
-      imagePreviewUrl = null; 
-      selectedVegStatus = true;
-      showModal = true; 
-      render(); 
-    });
-    document.getElementById('taxSettingsBtn')?.addEventListener('click', () => { showTaxModal = true; render(); });
-    
-    document.getElementById('itemFile')?.addEventListener('change', handleFileSelect);
-    
-    document.querySelectorAll('.editItemBtn').forEach(btn => {
-      btn.addEventListener('click', () => { 
-        editingItem = menuItems.find(i => i.id === btn.dataset.id); 
-        selectedFile = null; 
-        imagePreviewUrl = editingItem?.image || null; 
-        showModal = true; 
-        render(); 
-      });
-    });
-    
-    document.querySelectorAll('.toggleAvailBtn').forEach(btn => {
-      btn.addEventListener('click', () => { toggleAvailability(btn.dataset.id, btn.dataset.available === 'true'); });
-    });
-    
-    document.querySelectorAll('.deleteItemBtn').forEach(btn => {
-      btn.addEventListener('click', () => { deleteMenuItem(btn.dataset.id, btn.dataset.name); });
-    });
-    
-    document.querySelectorAll('.acceptOrderBtn').forEach(btn => {
-      btn.addEventListener('click', () => { updateOrderStatus(btn.dataset.id, 'Preparing'); });
-    });
-    
-    document.querySelectorAll('.serveOrderBtn').forEach(btn => {
-      btn.addEventListener('click', () => { updateOrderStatus(btn.dataset.id, 'Served'); });
-    });
-    
-    document.querySelectorAll('.order-tab').forEach(tab => {
-      tab.addEventListener('click', () => { currentTab = tab.dataset.tab; render(); });
-    });
-    
-    const closeModal = () => { showModal = false; editingItem = null; selectedFile = null; imagePreviewUrl = null; isCompressing = false; compressProgress = 0; render(); };
-    const closeTaxModal = () => { showTaxModal = false; render(); };
-    
-    document.getElementById('closeModalBtn')?.addEventListener('click', closeModal);
-    document.getElementById('cancelModalBtn')?.addEventListener('click', closeModal);
-    document.getElementById('modalOverlay')?.addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
-    document.getElementById('closeTaxModal')?.addEventListener('click', closeTaxModal);
-    document.getElementById('cancelTaxBtn')?.addEventListener('click', closeTaxModal);
-    document.getElementById('taxModalOverlay')?.addEventListener('click', (e) => { if (e.target.id === 'taxModalOverlay') closeTaxModal(); });
-    
-    document.getElementById('saveTaxBtn')?.addEventListener('click', () => {
-      TAX_CONFIG.cgst.enabled = document.getElementById('cgstEnabled')?.checked || false;
-      TAX_CONFIG.sgst.enabled = document.getElementById('sgstEnabled')?.checked || false;
-      TAX_CONFIG.serviceCharge.enabled = document.getElementById('serviceChargeEnabled')?.checked || false;
-      TAX_CONFIG.roundOff = document.getElementById('roundOffEnabled')?.checked || false;
-      showNotification('Tax settings saved!', 'success');
-      showTaxModal = false;
-      render();
-    });
-    
-    document.getElementById('saveItemBtn')?.addEventListener('click', async () => {
-      const name = document.getElementById('itemName')?.value.trim();
-      const price = parseFloat(document.getElementById('itemPrice')?.value);
-      const category = document.getElementById('itemCategory')?.value;
-      const description = document.getElementById('itemDescription')?.value;
-      const file = document.getElementById('itemFile')?.files[0];
-      
-      // Get veg/non-veg selection
-      const foodTypeRadio = document.querySelector('input[name="foodType"]:checked');
-      const isVeg = foodTypeRadio?.value === 'veg';
-      
-      if (!name || !price || isNaN(price) || price <= 0) {
-        showNotification('Please enter valid name and price', 'error');
-        return;
-      }
-      
-      if (editingItem) {
-        await updateMenuItem(editingItem.id, { name, price, category, description, veg: isVeg }, file);
-      } else {
-        await addMenuItem({ name, price, category, description, veg: isVeg }, file);
-      }
-      closeModal();
-    });
+    document.getElementById('restoName')?.addEventListener('change', (e) => { restaurantSettings.name = e.target.value; });
+    document.getElementById('restoAddress')?.addEventListener('change', (e) => { restaurantSettings.address = e.target.value; });
+    document.getElementById('restoPhone')?.addEventListener('change', (e) => { restaurantSettings.phone = e.target.value; });
+    document.getElementById('restoGST')?.addEventListener('change', (e) => { restaurantSettings.gstin = e.target.value; });
+    document.getElementById('cgstRate')?.addEventListener('change', (e) => { restaurantSettings.cgstRate = parseFloat(e.target.value) || 2.5; });
+    document.getElementById('sgstRate')?.addEventListener('change', (e) => { restaurantSettings.sgstRate = parseFloat(e.target.value) || 2.5; });
+    document.getElementById('roundOff')?.addEventListener('change', (e) => { restaurantSettings.roundOff = e.target.checked; });
   }
-  
-  // ======================== INITIALIZATION ========================
-  function init() {
-    checkAuthState();
-  }
-  
-  init();
+
+  window.setSection = (s) => { currentSection = s; render(); };
+  window.logout = logoutUser;
+  window.addToOrder = addToOrder;
+  window.updateOrderQty = updateOrderQuantity;
+  window.removeFromOrder = removeFromOrder;
+  window.generateReceipt = generateReceipt;
+  window.toggleAvail = (id, status) => toggleAvailabilityInFirebase(id, status);
+  window.deleteItem = (id, name) => deleteMenuItemFromFirebase(id, name);
+  window.editItem = (id) => { editingItem = menuItems.find(i => i.id === id); selectedImageFile = null; imagePreviewUrl = editingItem?.image || null; showAddItemModal = true; render(); };
+  window.openAddItemModal = () => { editingItem = null; selectedImageFile = null; imagePreviewUrl = null; showAddItemModal = true; render(); };
+  window.closeModal = () => { showAddItemModal = false; editingItem = null; selectedImageFile = null; imagePreviewUrl = null; render(); };
+  window.handleImageSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) { selectedImageFile = file; const reader = new FileReader(); reader.onload = (e) => { imagePreviewUrl = e.target.result; document.getElementById('imagePreview').src = imagePreviewUrl; document.getElementById('imagePreviewContainer')?.classList.remove('hidden'); }; reader.readAsDataURL(file); }
+  };
+  window.clearImage = () => { selectedImageFile = null; imagePreviewUrl = null; document.getElementById('imagePreviewContainer')?.classList.add('hidden'); document.getElementById('imageUpload').value = ''; };
+  window.saveMenuItem = async () => {
+    const name = document.getElementById('itemName')?.value;
+    const price = parseFloat(document.getElementById('itemPrice')?.value);
+    const category = document.getElementById('itemCategory')?.value;
+    const description = document.getElementById('itemDescription')?.value;
+    const veg = document.querySelector('input[name="vegType"]:checked')?.value === 'veg';
+    if (!name || !price) { alert('Please fill name and price'); return; }
+    if (editingItem) await updateMenuItemInFirebase(editingItem.id, { name, price, category, description, veg }, selectedImageFile);
+    else await addMenuItemToFirebase({ name, price, category, description, veg }, selectedImageFile);
+    showAddItemModal = false; editingItem = null; selectedImageFile = null; imagePreviewUrl = null; render();
+  };
+  window.saveSettings = async () => {
+    await saveSettings();
+    render();
+  };
+
+  loadOrderCounter();
+  checkAuthState();
 </script>
 </body>
 </html>
