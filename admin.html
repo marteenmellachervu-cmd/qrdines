@@ -3,18 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>RestoPOS | Professional Restaurant Admin Dashboard</title>
+  <title>RestoPOS | Professional Billing System</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { font-family: 'Inter', sans-serif; }
     .sidebar-item { transition: all 0.2s ease; cursor: pointer; }
     .sidebar-item:hover { background: #fef3c7; color: #f97316; }
     .sidebar-item.active { background: linear-gradient(135deg, #f97316, #ea580c); color: white; box-shadow: 0 4px 12px rgba(249,115,22,0.3); }
-    .menu-item-card { transition: all 0.2s ease; cursor: pointer; }
-    .menu-item-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px -6px rgba(0,0,0,0.1); }
     .pos-item { transition: all 0.1s ease; cursor: pointer; }
     .pos-item:active { transform: scale(0.98); }
     .veg-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 6px; }
@@ -27,8 +24,6 @@
     .image-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 12px; border: 2px solid #f97316; margin-top: 10px; }
     .upload-area { border: 2px dashed #cbd5e1; border-radius: 12px; transition: all 0.2s; cursor: pointer; }
     .upload-area:hover { border-color: #f97316; background: #fef3c7; }
-    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #f97316; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -97,13 +92,10 @@
   let editingItem = null;
   let selectedImageFile = null;
   let imagePreviewUrl = null;
-  let isLoading = true;
   
   // Firebase Data
   let menuItems = [];
   let orderHistory = [];
-  let salesData = [];
-  let logs = [];
   let restaurantId = null;
   
   // Unsubscribe functions
@@ -118,7 +110,6 @@
   }
   
   function formatCurrency(amount) { return '₹' + amount.toFixed(0); }
-  function escapeHtml(str) { if (!str) return ''; return str.replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
   
   // ======================== FIREBASE LISTENERS ========================
   function listenToMenu() {
@@ -142,11 +133,9 @@
     if (unsubscribeOrders) unsubscribeOrders();
     unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       orderHistory = [];
-      salesData = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
         orderHistory.push({ id: doc.id, ...data });
-        salesData.push({ id: doc.id, amount: data.totalAmount, time: data.date, items: data.itemCount });
       });
       console.log(`✅ Order history loaded: ${orderHistory.length} orders`);
       render();
@@ -191,16 +180,15 @@
     render();
   }
   
+  function clearOrder() {
+    if (currentOrder.length > 0 && confirm('Clear entire order?')) {
+      currentOrder = [];
+      render();
+    }
+  }
+  
   function getSubtotal() { return currentOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0); }
   function getTaxDetails() { return calculateGST(getSubtotal()); }
-  
-  async function generateBillNumber() {
-    const counterRef = doc(db, "counters", "billCounter");
-    const counterDoc = await getDocs(query(collection(db, "counters"), where("id", "==", "billCounter")));
-    let currentCounter = orderCounter;
-    orderCounter++;
-    return String(currentCounter).padStart(4, '0');
-  }
   
   async function generateReceipt() {
     if (currentOrder.length === 0) { showNotification('No items in order', 'error'); return; }
@@ -233,15 +221,6 @@
     try {
       await addDoc(collection(db, "orders"), orderData);
       
-      // Add to logs
-      await addDoc(collection(db, "logs"), {
-        restaurantId: restaurantId,
-        event: `BILL_GENERATED - ${billNumber}`,
-        time: date,
-        details: `${currentOrder.length} items, Total: ${formatCurrency(taxDetails.grandTotal)}`,
-        timestamp: serverTimestamp()
-      });
-      
       printReceipt(billNumber, date, currentOrder, subtotal, taxDetails);
       
       currentOrder = [];
@@ -266,7 +245,7 @@
           <p><strong>Date:</strong> ${date}</p>
         </div>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
-          <thead><tr style="border-bottom: 1px solid #ccc;"><th style="text-align: left;">Item</th><th style="text-align: center;">Qty</th><th style="text-align: right;">Price</th><th style="text-align: right;">Total</th></tr></thead>
+          <thead><tr style="border-bottom: 1px solid #ccc;"><th style="text-align: left;">Item</th><th style="text-align: center;">Qty</th><th style="text-align: right;">Price</th><th style="text-align: right;">Total</th>\)</thead>
           <tbody>${items.map(item => `<tr><td style="padding: 4px;">${item.name} <span class="veg-dot ${item.veg ? 'green' : 'red'}" style="display: inline-block;"></span></td><td style="text-align: center;">${item.quantity}</td><td style="text-align: right;">${formatCurrency(item.price)}</td><td style="text-align: right;">${formatCurrency(item.price * item.quantity)}</td></tr>`).join('')}</tbody>
         </table>
         <div style="border-top: 1px solid #ccc; padding-top: 10px;">
@@ -320,8 +299,6 @@
         image: imageUrl,
         veg: itemData.veg,
         available: true,
-        prepTime: 15,
-        popular: false,
         createdAt: serverTimestamp()
       });
       showNotification(`✅ "${itemData.name}" added to menu!`);
@@ -369,7 +346,6 @@
       isLoggedIn = true;
       localStorage.setItem('resto_logged', 'true');
       
-      // Load restaurant settings if exists
       const settingsDoc = await getDocs(query(collection(db, "restaurants"), where("userId", "==", restaurantId)));
       if (!settingsDoc.empty) {
         const data = settingsDoc.docs[0].data();
@@ -378,7 +354,6 @@
         restaurantSettings.phone = data.phone || restaurantSettings.phone;
       }
       
-      // Load order counter
       const savedCounter = localStorage.getItem('resto_order_counter');
       if (savedCounter) orderCounter = parseInt(savedCounter);
       
@@ -527,7 +502,7 @@
           <div class="text-center mb-6">
             <div class="inline-block bg-orange-100 rounded-full p-4 mb-4"><i class="fas fa-utensils text-5xl text-orange-600"></i></div>
             <h2 class="text-2xl font-bold">RestoPOS</h2>
-            <p class="text-gray-500 text-sm">Professional Restaurant Management</p>
+            <p class="text-gray-500 text-sm">Professional Billing System</p>
           </div>
           <div id="loginForm"><div class="space-y-4"><input type="email" id="loginEmail" class="w-full border rounded-lg px-4 py-2" placeholder="Email"><input type="password" id="loginPassword" class="w-full border rounded-lg px-4 py-2" placeholder="Password"><button id="loginBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold">Login</button><p class="text-center text-sm">New restaurant? <button id="showRegisterBtn" class="text-orange-600">Register</button></p></div></div>
           <div id="registerForm" class="hidden"><div class="space-y-4"><input type="text" id="regName" class="w-full border rounded-lg px-4 py-2" placeholder="Owner Name"><input type="text" id="regRestoName" class="w-full border rounded-lg px-4 py-2" placeholder="Restaurant Name"><input type="email" id="regEmail" class="w-full border rounded-lg px-4 py-2" placeholder="Email"><input type="password" id="regPassword" class="w-full border rounded-lg px-4 py-2" placeholder="Password"><input type="text" id="regAddress" class="w-full border rounded-lg px-4 py-2" placeholder="Address"><input type="tel" id="regPhone" class="w-full border rounded-lg px-4 py-2" placeholder="Phone"><button id="registerBtn" class="w-full bg-orange-600 text-white py-2 rounded-lg font-semibold">Register</button><p class="text-center text-sm">Already have account? <button id="showLoginBtn" class="text-orange-600">Login</button></p></div></div>
@@ -539,28 +514,32 @@
   function renderSidebar() {
     const items = [
       { id: 'pos', icon: 'fa-cash-register', label: 'POS / Billing' },
-      { id: 'dashboard', icon: 'fa-chart-line', label: 'Dashboard' },
       { id: 'orderhistory', icon: 'fa-history', label: 'Order History' },
       { id: 'menu', icon: 'fa-utensils', label: 'Menu Management' },
-      { id: 'analytics', icon: 'fa-chart-bar', label: 'Analytics' },
       { id: 'settings', icon: 'fa-cog', label: 'Settings' }
     ];
-    return `<div class="fixed left-0 top-0 h-full w-64 bg-white shadow-xl z-20" style="border-right: 1px solid #e5e7eb;"><div class="p-6 border-b"><h1 class="font-bold text-2xl">Resto<span class="text-orange-500">POS</span></h1><p class="text-xs text-gray-500">Premium Dashboard</p></div><nav class="p-4 space-y-1">${items.map(item => `<div onclick="window.setSection('${item.id}')" class="sidebar-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium ${currentSection === item.id ? 'active' : ''}"><i class="fas ${item.icon} w-5"></i><span>${item.label}</span></div>`).join('')}</nav><div class="absolute bottom-6 left-0 right-0 px-4"><div class="bg-gray-50 rounded-xl p-3 text-center"><i class="fas fa-user-circle text-orange-500 text-2xl mb-1"></i><p class="text-xs font-medium">${currentUser?.displayName || 'Staff'}</p><p class="text-xs text-gray-400">Restaurant Admin</p></div></div></div>`;
+    return `<div class="fixed left-0 top-0 h-full w-64 bg-white shadow-xl z-20" style="border-right: 1px solid #e5e7eb;"><div class="p-6 border-b"><h1 class="font-bold text-2xl">Resto<span class="text-orange-500">POS</span></h1><p class="text-xs text-gray-500">Billing System</p></div><nav class="p-4 space-y-1">${items.map(item => `<div onclick="window.setSection('${item.id}')" class="sidebar-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium ${currentSection === item.id ? 'active' : ''}"><i class="fas ${item.icon} w-5"></i><span>${item.label}</span></div>`).join('')}</nav><div class="absolute bottom-6 left-0 right-0 px-4"><div class="bg-gray-50 rounded-xl p-3 text-center"><i class="fas fa-user-circle text-orange-500 text-2xl mb-1"></i><p class="text-xs font-medium">${currentUser?.displayName || 'Staff'}</p><p class="text-xs text-gray-400">Restaurant Admin</p></div></div></div>`;
   }
   
   function renderTopBar() {
     const currentTime = new Date().toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
-    return `<div class="flex justify-between items-center px-8 py-4 bg-white shadow-sm sticky top-0 z-10"><div><h2 class="text-xl font-bold capitalize">${currentSection === 'pos' ? 'POS / Billing' : currentSection}</h2></div><div class="flex items-center gap-6"><div class="text-right"><p class="text-sm font-medium">${restaurantSettings.name}</p><p class="text-xs text-gray-500">${currentTime}</p></div><div class="flex items-center gap-3"><div class="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white font-bold">${currentUser?.displayName?.charAt(0) || 'A'}</div></div><button onclick="window.logout()" class="text-red-500 hover:text-red-600"><i class="fas fa-sign-out-alt"></i></button></div></div>`;
+    return `<div class="flex justify-between items-center px-8 py-4 bg-white shadow-sm sticky top-0 z-10"><div><h2 class="text-xl font-bold capitalize">${currentSection === 'pos' ? 'POS / Billing' : currentSection === 'orderhistory' ? 'Order History' : currentSection === 'menu' ? 'Menu Management' : 'Settings'}</h2></div><div class="flex items-center gap-4"><div class="text-right"><p class="text-sm font-medium">${restaurantSettings.name}</p><p class="text-xs text-gray-500">${currentTime}</p></div><div class="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center text-white font-bold">${currentUser?.displayName?.charAt(0) || 'A'}</div><button onclick="window.logout()" class="text-red-500 hover:text-red-600"><i class="fas fa-sign-out-alt"></i></button></div></div>`;
   }
   
   function renderPOS() {
     const taxDetails = calculateGST(getSubtotal());
+    const availableItems = menuItems.filter(i => i.available);
+    
     return `
       <div class="flex flex-col lg:flex-row h-full">
         <div class="flex-1 p-6">
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            ${menuItems.filter(i => i.available).map(item => `
-              <div onclick="window.addToOrder(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="pos-item bg-white rounded-xl p-4 text-center shadow-sm hover:shadow-md transition">
+          <div class="mb-4 flex justify-between items-center">
+            <h3 class="font-bold text-lg">Menu Items</h3>
+            <input type="text" id="menuSearch" placeholder="Search items..." class="px-3 py-1 border rounded-lg text-sm w-64">
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+            ${availableItems.length === 0 ? '<div class="col-span-full text-center py-8 text-gray-400">No items available. Add items from Menu Management.</div>' : availableItems.map(item => `
+              <div onclick="window.addToOrder(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="pos-item bg-white rounded-xl p-4 text-center shadow-sm hover:shadow-md transition border border-gray-100">
                 <img src="${item.image}" class="w-16 h-16 mx-auto rounded-lg object-cover mb-2">
                 <div class="flex items-center justify-center gap-1"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span><span class="font-semibold text-sm">${item.name}</span></div>
                 <p class="text-orange-600 font-bold mt-1">${formatCurrency(item.price)}</p>
@@ -569,14 +548,35 @@
           </div>
         </div>
         
-        <div class="w-full lg:w-96 bg-white border-l border-gray-200 p-6">
-          <div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">Current Order</h3><span class="text-xs text-gray-500">${currentOrder.length} items</span></div>
-          <div class="space-y-3 max-h-96 overflow-y-auto mb-4">${currentOrder.length === 0 ? '<div class="text-center py-8 text-gray-400"><i class="fas fa-shopping-cart text-4xl mb-2"></i><p>No items added</p></div>' : currentOrder.map(item => `<div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><div class="flex-1"><p class="font-medium">${item.name}</p><p class="text-sm text-gray-500">${formatCurrency(item.price)}</p></div><div class="flex items-center gap-2"><button onclick="window.updateOrderQty(${item.id}, -1)" class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300">-</button><span class="w-8 text-center font-semibold">${item.quantity}</span><button onclick="window.updateOrderQty(${item.id}, 1)" class="w-8 h-8 rounded-full bg-orange-100 hover:bg-orange-200">+</button><button onclick="window.removeFromOrder(${item.id})" class="ml-2 text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button></div></div>`).join('')}</div>
+        <div class="w-full lg:w-96 bg-white border-l border-gray-200 p-6 flex flex-col h-[calc(100vh-73px)]">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="font-bold text-lg">Current Order</h3>
+            <div class="flex gap-2">
+              <span class="text-xs text-gray-500">${currentOrder.length} items</span>
+              ${currentOrder.length > 0 ? `<button onclick="window.clearOrder()" class="text-red-500 text-xs hover:text-red-700"><i class="fas fa-trash-alt"></i> Clear</button>` : ''}
+            </div>
+          </div>
+          <div class="space-y-3 flex-1 overflow-y-auto mb-4">
+            ${currentOrder.length === 0 ? '<div class="text-center py-8 text-gray-400"><i class="fas fa-shopping-cart text-4xl mb-2"></i><p>No items added</p><p class="text-xs">Click on menu items to add</p></div>' : currentOrder.map(item => `
+              <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div class="flex-1">
+                  <p class="font-medium">${item.name}</p>
+                  <p class="text-sm text-gray-500">${formatCurrency(item.price)}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="window.updateOrderQty('${item.id}', -1)" class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300">-</button>
+                  <span class="w-8 text-center font-semibold">${item.quantity}</span>
+                  <button onclick="window.updateOrderQty('${item.id}', 1)" class="w-8 h-8 rounded-full bg-orange-100 hover:bg-orange-200">+</button>
+                  <button onclick="window.removeFromOrder('${item.id}')" class="ml-2 text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
           <div class="border-t pt-4 space-y-2">
-            <div class="flex justify-between"><span>Subtotal</span><span>${formatCurrency(taxDetails.subtotal)}</span></div>
-            <div class="flex justify-between"><span>CGST (${restaurantSettings.cgstRate}%)</span><span>${formatCurrency(taxDetails.cgst)}</span></div>
-            <div class="flex justify-between"><span>SGST (${restaurantSettings.sgstRate}%)</span><span>${formatCurrency(taxDetails.sgst)}</span></div>
-            ${taxDetails.roundOff !== 0 ? `<div class="flex justify-between"><span>Round Off</span><span>${taxDetails.roundOff > 0 ? '+' : ''}${formatCurrency(taxDetails.roundOff)}</span></div>` : ''}
+            <div class="flex justify-between"><span class="text-gray-600">Subtotal</span><span>${formatCurrency(taxDetails.subtotal)}</span></div>
+            <div class="flex justify-between"><span class="text-gray-600">CGST (${restaurantSettings.cgstRate}%)</span><span>${formatCurrency(taxDetails.cgst)}</span></div>
+            <div class="flex justify-between"><span class="text-gray-600">SGST (${restaurantSettings.sgstRate}%)</span><span>${formatCurrency(taxDetails.sgst)}</span></div>
+            ${taxDetails.roundOff !== 0 ? `<div class="flex justify-between"><span class="text-gray-600">Round Off</span><span>${taxDetails.roundOff > 0 ? '+' : ''}${formatCurrency(taxDetails.roundOff)}</span></div>` : ''}
             <div class="flex justify-between font-bold text-lg pt-2 border-t"><span>Total</span><span class="text-orange-600">${formatCurrency(taxDetails.grandTotal)}</span></div>
             <button onclick="window.generateReceipt()" class="w-full bg-orange-600 text-white py-3 rounded-lg font-bold mt-4 hover:bg-orange-700 transition" ${currentOrder.length === 0 ? 'disabled' : ''}>Generate Bill & Print</button>
           </div>
@@ -585,19 +585,8 @@
     `;
   }
   
-  function renderDashboard() {
-    const dailyRevenue = salesData.slice(0, 10).reduce((sum, s) => sum + s.amount, 0);
-    const totalOrders = salesData.length;
-    const popularItems = [...menuItems].sort((a,b) => b.popular ? 1 : -1).slice(0,5);
-    setTimeout(() => {
-      const ctx = document.getElementById('salesChart')?.getContext('2d');
-      if (ctx) new Chart(ctx, { type: 'line', data: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], datasets: [{ label: 'Sales (₹)', data: [12450, 14230, 16890, 18450, 21200, 24500, 19800], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', fill: true }] }, options: { responsive: true } });
-    }, 100);
-    return `<div class="p-8"><div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8"><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center"><i class="fas fa-rupee-sign text-green-600 text-xl"></i></div><div><p class="text-gray-500 text-sm">Today's Revenue</p><p class="text-2xl font-bold">${formatCurrency(dailyRevenue)}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center"><i class="fas fa-receipt text-blue-600 text-xl"></i></div><div><p class="text-gray-500 text-sm">Total Orders</p><p class="text-2xl font-bold">${totalOrders}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center"><i class="fas fa-utensils text-orange-600 text-xl"></i></div><div><p class="text-gray-500 text-sm">Menu Items</p><p class="text-2xl font-bold">${menuItems.length}</p></div></div></div><div class="bg-white rounded-xl p-5"><div class="flex items-center gap-4"><div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center"><i class="fas fa-clock text-purple-600 text-xl"></i></div><div><p class="text-gray-500 text-sm">Peak Hour</p><p class="text-2xl font-bold">8-9 PM</p></div></div></div></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Sales Overview</h3><canvas id="salesChart" height="200"></canvas></div><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Most Popular Items</h3><div class="space-y-3">${popularItems.map(item => `<div class="flex justify-between items-center"><div><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>${item.name}</div><span class="font-bold text-orange-600">${formatCurrency(item.price)}</span></div>`).join('')}</div></div></div></div>`;
-  }
-  
   function renderOrderHistory() {
-    const totalRevenue = orderHistory.reduce((sum, order) => sum + order.totalAmount, 0);
+    const totalRevenue = orderHistory.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
     const totalOrdersCount = orderHistory.length;
     return `
       <div class="p-8">
@@ -613,7 +602,7 @@
             <div class="overflow-x-auto">
               <table class="w-full min-w-[900px]">
                 <thead class="bg-gray-50 border-b"><tr><th class="p-4 text-left">Bill No.</th><th class="p-4 text-left">Date & Time</th><th class="p-4 text-left">Items</th><th class="p-4 text-right">Subtotal</th><th class="p-4 text-right">Tax</th><th class="p-4 text-right">Total</th><th class="p-4 text-center">Action</th></tr></thead>
-                <tbody>${orderHistory.map(order => `<tr class="border-b hover:bg-gray-50 transition"><td class="p-4 font-mono font-medium">#${order.billNumber}</td><td class="p-4 text-sm text-gray-600">${order.date}</td><td class="p-4">${order.itemCount} items</td><td class="p-4 text-right">${formatCurrency(order.subtotal)}</td><td class="p-4 text-right text-sm text-gray-600">${formatCurrency(order.cgst + order.sgst)}</td><td class="p-4 text-right font-bold text-orange-600">${formatCurrency(order.totalAmount)}</td><td class="p-4 text-center"><button onclick="window.reprintReceiptFromOrder(${JSON.stringify(order).replace(/"/g, '&quot;')})" class="text-blue-500 hover:text-blue-700" title="Print Bill"><i class="fas fa-print"></i> Print</button></td></tr>`).join('')}</tbody>
+                <tbody>${orderHistory.map(order => `<tr class="border-b hover:bg-gray-50 transition"><td class="p-4 font-mono font-medium">#${order.billNumber}</td><td class="p-4 text-sm text-gray-600">${order.date || 'N/A'}</td><td class="p-4">${order.itemCount || order.items?.length || 0} items</td><td class="p-4 text-right">${formatCurrency(order.subtotal || 0)}</td><td class="p-4 text-right text-sm text-gray-600">${formatCurrency((order.cgst || 0) + (order.sgst || 0))}</td><td class="p-4 text-right font-bold text-orange-600">${formatCurrency(order.totalAmount || 0)}</td><td class="p-4 text-center"><button onclick="window.reprintReceiptFromOrder(${JSON.stringify(order).replace(/"/g, '&quot;')})" class="text-blue-500 hover:text-blue-700" title="Print Bill"><i class="fas fa-print"></i> Print</button></td></tr>`).join('')}</tbody>
               </table>
             </div>
           `}
@@ -623,17 +612,7 @@
   }
   
   function renderMenuManagement() {
-    return `<div class="p-8"><div class="flex justify-between items-center mb-6"><h3 class="text-xl font-bold">Menu Management</h3><button onclick="window.openAddItemModal()" class="bg-orange-600 text-white px-4 py-2 rounded-lg"><i class="fas fa-plus"></i> Add Item</button></div><div class="bg-white rounded-xl shadow-sm overflow-x-auto"><table class="w-full min-w-800"><thead class="bg-gray-50"><tr><th class="p-3 text-left">Image</th><th class="p-3 text-left">Name</th><th class="p-3 text-left">Category</th><th class="p-3 text-left">Price</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${menuItems.map(item => `<tr class="border-b hover:bg-gray-50"><td class="p-3"><img src="${item.image}" class="w-12 h-12 rounded-lg object-cover"></td><td class="p-3 font-medium">${item.name}${item.popular ? ' 🔥' : ''}</td><td class="p-3">${item.category}</td><td class="p-3 font-bold text-orange-600">${formatCurrency(item.price)}</td><td class="p-3"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>${item.veg ? 'Veg' : 'Non-Veg'}</td><td class="p-3"><button onclick="window.toggleAvail('${item.id}', ${item.available})" class="px-3 py-1 rounded-full text-xs ${item.available ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${item.available ? 'Available' : 'Out of Stock'}</button></td><td class="p-3"><button onclick="window.editItem('${item.id}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button><button onclick="window.deleteItem('${item.id}', '${item.name}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody></table></div></div>`;
-  }
-  
-  function renderAnalytics() {
-    const totalRevenue = salesData.reduce((sum, s) => sum + s.amount, 0);
-    const avgOrder = salesData.length ? totalRevenue / salesData.length : 0;
-    setTimeout(() => {
-      const revCtx = document.getElementById('revenueChart')?.getContext('2d');
-      if (revCtx) new Chart(revCtx, { type: 'bar', data: { labels: salesData.slice(-7).map((_,i) => `Day ${i+1}`), datasets: [{ label: 'Revenue', data: salesData.slice(-7).map(s => s.amount), backgroundColor: '#f97316' }] }, options: { responsive: true } });
-    }, 100);
-    return `<div class="p-8"><div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Revenue Chart</h3><canvas id="revenueChart" height="200"></canvas></div><div class="bg-white rounded-xl p-6"><h3 class="font-bold mb-4">Key Metrics</h3><div class="space-y-4"><div><p class="text-gray-500">Total Revenue</p><p class="text-2xl font-bold text-green-600">${formatCurrency(totalRevenue)}</p></div><div><p class="text-gray-500">Average Order Value</p><p class="text-2xl font-bold text-orange-600">${formatCurrency(avgOrder)}</p></div><div><p class="text-gray-500">Tax Configuration</p><div class="mt-2 text-sm"><p>CGST: ${restaurantSettings.cgstRate}% | SGST: ${restaurantSettings.sgstRate}%</p><p>Round Off: ${restaurantSettings.roundOff ? 'Enabled' : 'Disabled'}</p></div></div></div></div></div></div>`;
+    return `<div class="p-8"><div class="flex justify-between items-center mb-6"><h3 class="text-xl font-bold">Menu Management</h3><button onclick="window.openAddItemModal()" class="bg-orange-600 text-white px-4 py-2 rounded-lg"><i class="fas fa-plus"></i> Add Item</button></div><div class="bg-white rounded-xl shadow-sm overflow-x-auto"><table class="w-full min-w-800"><thead class="bg-gray-50"><tr><th class="p-3 text-left">Image</th><th class="p-3 text-left">Name</th><th class="p-3 text-left">Category</th><th class="p-3 text-left">Price</th><th class="p-3 text-left">Type</th><th class="p-3 text-left">Status</th><th class="p-3 text-left">Actions</th></tr></thead><tbody>${menuItems.map(item => `<tr class="border-b hover:bg-gray-50"><td class="p-3"><img src="${item.image}" class="w-12 h-12 rounded-lg object-cover"></td><td class="p-3 font-medium">${item.name}</td><td class="p-3">${item.category || 'General'}</td><td class="p-3 font-bold text-orange-600">${formatCurrency(item.price)}</td><td class="p-3"><span class="veg-dot ${item.veg ? 'green' : 'red'}"></span>${item.veg ? 'Veg' : 'Non-Veg'}</td><td class="p-3"><button onclick="window.toggleAvail('${item.id}', ${item.available})" class="px-3 py-1 rounded-full text-xs ${item.available ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${item.available ? 'Available' : 'Out of Stock'}</button></td><td class="p-3"><button onclick="window.editItem('${item.id}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button><button onclick="window.deleteItem('${item.id}', '${item.name}')" class="text-red-500"><i class="fas fa-trash"></i></button></td></tr>`).join('')}</tbody>}_table</div></div>`;
   }
   
   function renderSettings() {
@@ -648,15 +627,31 @@
   function render() {
     const root = document.getElementById('root');
     if (!root) return;
+    
     if (!isLoggedIn) { root.innerHTML = renderLogin(); attachLoginEvents(); return; }
     let main = '';
     if (currentSection === 'pos') main = renderPOS();
-    else if (currentSection === 'dashboard') main = renderDashboard();
     else if (currentSection === 'orderhistory') main = renderOrderHistory();
     else if (currentSection === 'menu') main = renderMenuManagement();
-    else if (currentSection === 'analytics') main = renderAnalytics();
     else main = renderSettings();
     root.innerHTML = `<div class="min-h-screen bg-gray-50"><div class="ml-64">${renderTopBar()}${main}</div>${renderSidebar()}${renderAddItemModal()}</div>${toast ? `<div class="toast ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-500'} text-white px-4 py-2 rounded-lg shadow-lg">${toast.message}</div>` : ''}`;
+    
+    // Search functionality for POS
+    if (currentSection === 'pos') {
+      setTimeout(() => {
+        const searchInput = document.getElementById('menuSearch');
+        if (searchInput) {
+          searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const items = document.querySelectorAll('.pos-item');
+            items.forEach(item => {
+              const name = item.querySelector('.font-semibold')?.innerText.toLowerCase() || '';
+              item.style.display = name.includes(searchTerm) ? '' : 'none';
+            });
+          });
+        }
+      }, 100);
+    }
   }
   
   function attachLoginEvents() {
@@ -672,6 +667,7 @@
   window.addToOrder = addToOrder;
   window.updateOrderQty = updateOrderQuantity;
   window.removeFromOrder = removeFromOrder;
+  window.clearOrder = clearOrder;
   window.generateReceipt = generateReceipt;
   window.toggleAvail = toggleAvailability;
   window.deleteItem = deleteMenuItem;
